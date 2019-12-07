@@ -39,6 +39,8 @@ type Client struct {
 	log    Logger
 	config Config
 
+	eventChannel chan<- interface{}
+
 	httpClient http.Client
 	dtsg       string
 	lastSeqId  string
@@ -90,7 +92,6 @@ func NewClient(log Logger, conf Config) *Client {
 	_ = c.fetchStartPage()
 	c.updateDtsg()
 	c.updateGroups()
-	c.fetchLastSeqId()
 
 	go func() {
 		t := time.NewTicker(60 * time.Second)
@@ -117,7 +118,13 @@ func NewClient(log Logger, conf Config) *Client {
 	return c
 }
 
+func (c *Client) SetEventChannel(channel chan<- interface{}) {
+	c.eventChannel = channel
+}
+
 func (c *Client) Listen() {
+	c.fetchLastSeqId()
+
 	h := http.Header{}
 	h.Add("Cookie", c.config.Cookie)
 	h.Add("User-Agent", c.config.UserAgent)
@@ -179,6 +186,7 @@ func (c *Client) Listen() {
 		}`, c.config.UserID, c.lastSeqId))
 	}
 
+	//TODO kossuk be appig a logolast
 	mqtt.ERROR = log.New(os.Stdout, "", 0)
 
 	client := mqtt.NewClient(connOpts)
@@ -197,28 +205,134 @@ func (c *Client) mqttMessageHandler(client mqtt.Client, message mqtt.Message) {
 
 	switch message.Topic() {
 	case "/orca_presence":
-		obj := orcaPresence{}
-		err := json.Unmarshal(message.Payload(), &obj)
-		if err != nil {
-			c.log.Error(fmt.Sprintf("error unmarshaling orca_presence: %s\n", err))
-			break
-		}
-		// TODO emit event
-		fmt.Printf("%+v\n", obj)
+		c.handleOrcaPresence(message.Payload())
 
 	case "/t_ms":
-		if strings.Contains(string(message.Payload()), "firstDeltaSeqId") {
-			obj := firstDeltaSeqId{}
-			err := json.Unmarshal(message.Payload(), &obj)
-			if err != nil {
-				c.log.Error(fmt.Sprintf("error unmarshaling firstDeltaSeqId: %s\n", err))
-				break
-			}
+		c.handleDeltaLikeMessage(message.Payload())
 
+	case "/thread_typing":
+		c.handleThreadTyping(message.Payload())
+	}
+}
+
+func (c *Client) handleOrcaPresence(message []byte) {
+	obj := orcaPresence{}
+	err := json.Unmarshal(message, &obj)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error unmarshaling orca_presence: %s\n", err))
+		return
+	}
+
+	p := Presence{ListType: obj.ListType}
+	for _, v := range obj.List {
+		p.List = append(p.List, presenceItem{UserID: v.UserID, Present: v.Present})
+	}
+
+	c.emit(p)
+}
+
+func (c *Client) handleDeltaLikeMessage(message []byte) {
+	if strings.Contains(string(message), "firstDeltaSeqId") || strings.Contains(string(message), "lastIssuedSeqId") {
+		obj := deltaSeqIds{}
+		err := json.Unmarshal(message, &obj)
+		if err != nil {
+			c.log.Error(fmt.Sprintf("error unmarshaling deltaSeqIds: %s\n", err))
+			return
+		}
+
+		if obj.LastIssuedSeqId == 0 {
 			c.lastSeqId = strconv.FormatInt(obj.FirstDeltaSeqId, 10)
 			c.log.App(fmt.Sprintf("got first seq id %s", c.lastSeqId))
-			break
+			return
+		} else {
+			c.lastSeqId = strconv.FormatInt(obj.LastIssuedSeqId, 10)
+			c.log.App(fmt.Sprintf("got last issued seq id %s", c.lastSeqId))
+			// no return
 		}
+	}
+
+	if strings.Contains(string(message), "deltas") {
+		dm := deltaWrapper{}
+		err := json.Unmarshal(message, &dm)
+		if err != nil {
+			c.log.Error(fmt.Sprintf("error unmarshaling delta message: %s\n", err))
+			return
+		}
+
+		for _, delta := range dm.Deltas {
+			if delta.IrisSeqId > c.lastSeqId {
+				c.lastSeqId = delta.IrisSeqId
+			}
+
+			if delta.isClientPayload() {
+				decoded := delta.decodeClientPayload()
+				c.log.Raw(fmt.Sprintf("decoded payload: %s", decoded))
+
+				c.handleClientPayload(decoded)
+			}
+
+			if delta.isNewMessage() {
+				nm := Message{}
+				nm.fromFBType(delta)
+
+				c.emit(nm)
+			}
+
+			if delta.isReadReceipt() {
+				rr := ReadReceipt{}
+				rr.fromFBType(delta)
+
+				c.emit(rr)
+			}
+		}
+	}
+}
+
+func (c *Client) handleThreadTyping(message []byte) {
+	obj := threadTyping{}
+	err := json.Unmarshal(message, &obj)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error unmarshaling thread_typing: %s\n", err))
+		return
+	}
+
+	t := ThreadTyping{
+		SenderFbId: obj.SenderFbId,
+		State:      obj.State,
+		Thread:     obj.Thread,
+	}
+
+	c.emit(t)
+}
+
+func (c *Client) handleClientPayload(payload []byte) {
+	obj := clientPayload{}
+	err := json.Unmarshal(payload, &obj)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error unmarshaling client payload: %s\n", err))
+		return
+	}
+
+	for _, v := range obj.Deltas {
+		if v.Reaction.MessageId != "" { //simple check to see if has reaction
+			mr := MessageReaction{}
+			mr.fromFBType(v.Reaction)
+
+			c.emit(mr)
+		}
+
+		if v.Reply.Message.MessageMetadata.MessageId != "" {
+			mr := MessageReply{}
+			mr.fromFBType(v.Reply)
+
+			c.emit(mr)
+		}
+	}
+}
+
+func (c *Client) emit(event interface{}) {
+	if c.eventChannel != nil {
+		c.eventChannel <- event
 	}
 }
 

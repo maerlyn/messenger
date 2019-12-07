@@ -46,13 +46,195 @@ type orcaPresence struct {
 	ListType string `json:"list_type"`
 	List     []struct {
 		UserID  uint64 `json:"u"`
-		Present uint   `json:"p"`
+		Present uint8  `json:"p"`
 		C       uint64 `json:"c"`
 	} `json:"list"`
 }
 
-type firstDeltaSeqId struct {
+type deltaSeqIds struct {
 	FirstDeltaSeqId int64  `json:"firstDeltaSeqId"`
+	LastIssuedSeqId int64  `json:"lastIssuedSeqId"`
 	QueueEntityId   int64  `json:"queueEntityId"`
 	SyncToken       string `json:"syncToken"`
+}
+
+type threadKey struct {
+	OtherUserFbId string `json:"otherUserFbId"`
+	ThreadFbId    string `json:"threadFbId"`
+}
+
+type threadKeyInt struct {
+	OtherUserFbId int64 `json:"otherUserFbId"`
+	ThreadFbId    int64 `json:"threadFbId"`
+}
+
+type deltaAttachment struct {
+	FbId            string `json:"fbid"`
+	FileSize        string `json:"fileSize"`
+	FileName        string `json:"filename"`
+	GenericMetadata struct {
+		FbType string `json:"fbtype"`
+	} `json:"genericMetadata"`
+	Hash           string `json:"hash"`
+	HaystackHandle string `json:"haystackHandle"`
+	Id             string `json:"id"`
+	ImageMetadata  struct {
+		Height int `json:"height"`
+		Width  int `json:"width"`
+	} `json:"imageMetadata"`
+
+	Mercury struct {
+		StickerAttachment struct {
+			Id   string `json:"id"`
+			Pack struct {
+				Id string `json:"id"`
+			} `json:"pack"`
+			Label        string `json:"label"`
+			FrameCount   int    `json:"frame_count"`
+			FrameRate    int    `json:"frame_rate"`
+			FramesPerRow int    `json:"frames_per_row"`
+			Url          string `json:"url"`
+			Height       int    `json:"height"`
+			Width        int    `json:"width"`
+		} `json:"sticker_attachment"`
+
+		BlobAttachment struct {
+			TypeName string `json:"__typename"`
+			FileName string `json:"filename"`
+			Preview  struct {
+				Uri    string `json:"uri"`
+				Height int    `json:"height"`
+				Width  int    `json:"width"`
+			} `json:"preview"`
+			LargePreview struct {
+				Uri    string `json:"uri"`
+				Height int    `json:"height"`
+				Width  int    `json:"width"`
+			} `json:"large_preview"`
+			Thumbnail struct {
+				Uri string `json:"uri"`
+			} `json:"thumbnail"`
+			LegacyAttachmentId string `json:"legacy_attachment_id"`
+			OriginalDimensions struct {
+				X int `json:"x"`
+				Y int `json:"y"`
+			} `json:"original_dimensions"`
+			OriginalExtension string `json:"original_extension"`
+			RenderAsSticker   bool   `json:"render_as_sticker"`
+		} `json:"blob_attachment"`
+	} `json:"mercury"`
+
+	MimeType       string   `json:"mimeType"`
+	OtherUserFbIds []string `json:"otherUserFbIds"`
+	TitanType      int      `json:"titanType"`
+	UseRefCounting bool     `json:"useRefCounting"`
+}
+
+type delta struct {
+	Class string `json:"class"`
+
+	Payload []uint8 `json:"payload"`
+
+	Body      string `json:"body"`
+	IrisSeqId string `json:"irisSeqId"`
+
+	MessageMetadata struct {
+		ActorFbId string    `json:"actorFbId"`
+		MessageId string    `json:"messageId"`
+		ThreadKey threadKey `json:"threadKey"`
+		Timestamp string    `json:"timestamp"`
+	} `json:"messageMetadata"`
+
+	Participants []string `json:"participants"`
+
+	ActionTimestampMs    string    `json:"actionTimestampMs"`
+	ActorFbId            string    `json:"actorFbId"`
+	ThreadKey            threadKey `json:"threadKey"`
+	WatermarkTimestampMs string    `json:"watermarkTimestampMs"`
+
+	Attachments []deltaAttachment `json:"attachments"`
+}
+
+func (d *delta) isClientPayload() bool {
+	return d.Class == "ClientPayload"
+}
+
+func (d *delta) isNewMessage() bool {
+	return d.Class == "NewMessage"
+}
+
+func (d *delta) isReadReceipt() bool {
+	return d.Class == "ReadReceipt"
+}
+
+func (d *delta) decodeClientPayload() []byte {
+	if !d.isClientPayload() {
+		return []byte{}
+	}
+
+	ret := ""
+	for _, v := range d.Payload {
+		ret = ret + string(v)
+	}
+
+	return []byte(ret)
+}
+
+type deltaWrapper struct {
+	Deltas []delta `json:"deltas"`
+}
+
+type threadTyping struct {
+	SenderFbId uint64 `json:"sender_fbid"`
+	State      int    `json:"state"`
+	Type       string `json:"type"`
+	Thread     string `json:"thread"`
+}
+
+type deltaMessageReaction struct {
+	ThreadKey          threadKeyInt `json:"threadKey"`
+	MessageId          string       `json:"messageId"`
+	Action             int          `json:"action"` // 0 = add, 1 = remove
+	UserId             uint64       `json:"userId"` // actor
+	Reaction           string       `json:"reaction"`
+	SenderId           uint64       `json:"senderId"` // original sender
+	OfflineThreadingId string       `json:"offlineThreadingId"`
+}
+
+type deltaMessageReply struct {
+	RepliedToMessage struct {
+		MessageMetadata struct {
+			ThreadKey threadKeyInt `json:"threadKey"`
+			MessageId string       `json:"messageId"`
+			ActorFbId uint64       `json:"actorFbId"`
+			Timestamp uint64       `json:"timestamp"`
+		} `json:"messageMetadata"`
+
+		Body string `json:"body"`
+	} `json:"repliedToMessage"`
+
+	Message struct {
+		MessageMetadata struct {
+			ThreadKey threadKeyInt `json:"threadKey"`
+			MessageId string       `json:"messageId"`
+			ActorFbId uint64       `json:"actorFbId"`
+			Timestamp uint64       `json:"timestamp"`
+		} `json:"messageMetadata"`
+
+		Body      string `json:"body"`
+		IrisSeqId int    `json:"irisSeqId"`
+
+		MessageReply struct {
+			ReplyToMessageId struct {
+				Id string `json:"id"`
+			} `json:"replyToMessageId"`
+		} `json:"messageReply"`
+	} `json:"message"`
+}
+
+type clientPayload struct {
+	Deltas []struct {
+		Reaction deltaMessageReaction `json:"deltaMessageReaction"`
+		Reply    deltaMessageReply    `json:"deltaMessageReply"`
+	} `json:"deltas"`
 }
