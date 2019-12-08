@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"net"
 	"net/http"
@@ -47,8 +46,9 @@ type Client struct {
 
 	groups []messengerGroup
 
-	lastActiveTimes      lastActiveTimes
-	lastActiveTimesMutex sync.Mutex
+	lastActiveTimes                lastActiveTimes
+	lastActiveTimesMutex           sync.Mutex
+	lastActiveTimesUpdatedChannels []chan<- bool
 
 	friendNames      map[string]string
 	friendNamesMutex sync.Mutex
@@ -109,7 +109,7 @@ func NewClient(log Logger, conf Config) *Client {
 
 	c.updateFriendsList()
 	c.updateLastActiveTimes()
-	//c.GetFriendData(conf.CUser) //meglegyen a sajat nevem a kiirashoz
+	go c.LoadFriend(conf.UserID)
 
 	c.sessionId = rand.Uint64()
 	id, _ := uuid.NewRandom()
@@ -186,8 +186,7 @@ func (c *Client) Listen() {
 		}`, c.config.UserID, c.lastSeqId))
 	}
 
-	//TODO kossuk be appig a logolast
-	mqtt.ERROR = log.New(os.Stdout, "", 0)
+	mqtt.ERROR = logMQTTToApp{appLogger: c.log}
 
 	client := mqtt.NewClient(connOpts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
@@ -322,6 +321,11 @@ func (c *Client) handleClientPayload(payload []byte) {
 		}
 
 		if v.Reply.Message.MessageMetadata.MessageId != "" {
+			s := strconv.Itoa(v.Reply.Message.IrisSeqId)
+			if s > c.lastSeqId {
+				c.lastSeqId = s
+			}
+
 			mr := MessageReply{}
 			mr.fromFBType(v.Reply)
 
@@ -415,14 +419,15 @@ func (c *Client) updateGroups() {
 		return
 	}
 
-	//TODO
-	//for _, group := range c.Groups {
-	//	for _, userId := range group.MercuryThread.Participants {
-	//		if _, ok := c.friendNames[userId]; !ok {
-	//			c.GetFriendData(userId) //ez a hatterben beallitja a nevet
-	//		}
-	//	}
-	//}
+	go func() {
+		for _, group := range c.groups {
+			for _, userId := range group.MercuryThread.Participants {
+				if _, ok := c.friendNames[userId]; !ok {
+					c.LoadFriend(userId)
+				}
+			}
+		}
+	}()
 }
 
 func (c *Client) updateFriendsList() {
@@ -511,13 +516,16 @@ func (c *Client) updateLastActiveTimes() {
 			c.lastActiveTimes[k] = v
 		}
 	}
+
+	for _, v := range c.lastActiveTimesUpdatedChannels {
+		v <- true
+	}
 }
 
 func (c *Client) fetchLastSeqId() {
 	formData := url.Values{}
 	formData.Add("fb_dtsg", c.dtsg)
 	formData.Add("queries", `{"o0":{"doc_id":"1349387578499440", "query_params":{"limit":1, "tags": ["INBOX"],"before": null, "includeDeliveryReceipts": false,"includeSeqID": true}}}`)
-
 	body := bytes.NewBufferString(formData.Encode())
 
 	resp, err := c.doHttpRequest("POST", "https://www.facebook.com/api/graphqlbatch/", body, time.Minute)
@@ -568,4 +576,80 @@ func (c *Client) doHttpRequest(method, url string, body io.Reader, timeout time.
 	}
 
 	return responseBody, nil
+}
+
+func (c *Client) FriendNames() map[string]string {
+	c.friendNamesMutex.Lock()
+	defer c.friendNamesMutex.Unlock()
+
+	return c.friendNames
+}
+
+func (c *Client) IsGroup(id string) bool {
+	for _, g := range c.groups {
+		if g.Uid == id {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (c *Client) GroupName(id string) string {
+	for _, g := range c.groups {
+		if g.Uid == id {
+			if g.MercuryThread.Name != "" {
+				return g.MercuryThread.Name
+			} else {
+				ret := make([]string, 0, len(g.ParticipantsToRender))
+
+				for _, p := range g.ParticipantsToRender {
+					ret = append(ret, p.ShortName)
+				}
+
+				return strings.Join(ret, ", ")
+			}
+		}
+	}
+
+	return ""
+}
+
+func (c *Client) LastActive(userId string) int64 {
+	c.lastActiveTimesMutex.Lock()
+	defer c.lastActiveTimesMutex.Unlock()
+
+	return c.lastActiveTimes[userId]
+}
+
+func (c *Client) RequestNotifyLastActiveTimesUpdate(ch chan<- bool) {
+	c.lastActiveTimesUpdatedChannels = append(c.lastActiveTimesUpdatedChannels, ch)
+}
+
+func (c *Client) LoadFriend(id string) bool {
+	formData := url.Values{}
+	formData.Add("fb_dtsg", c.dtsg)
+	formData.Add("queries", fmt.Sprintf("{\"o0\":{\"doc_id\":\"1939519269502621\",\"query_params\":{\"ids\":[\"%s\"]}}}", id))
+	body := bytes.NewBufferString(formData.Encode())
+
+	resp, err := c.doHttpRequest("POST", "https://www.facebook.com/api/graphqlbatch/", body, time.Minute)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error fetching data for friend %s: %s\n", id, err))
+		return false
+	}
+
+	line := strings.Split(string(resp), "\n")[0]
+	friendData := friendData{}
+	err = json.Unmarshal([]byte(line), &friendData)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error unmarshaling in getFriendData: %s\nraw:%s\n\n", err, line))
+		return false
+	}
+
+	c.friendNamesMutex.Lock()
+	defer c.friendNamesMutex.Unlock()
+
+	c.friendNames[id] = friendData.O0.Data.MessagingActors[0].Name
+
+	return true
 }

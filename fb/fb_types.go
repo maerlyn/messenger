@@ -238,3 +238,17 @@ type clientPayload struct {
 		Reply    deltaMessageReply    `json:"deltaMessageReply"`
 	} `json:"deltas"`
 }
+
+type friendData struct {
+	O0 struct {
+		Data struct {
+			MessagingActors []struct {
+				Id          string `json:"id"`
+				Name        string `json:"name"`
+				BigImageSrc struct {
+					Uri string `json:"uri"`
+				} `json:"big_image_src"`
+			} `json:"messaging_actors"`
+		} `json:"data"`
+	} `json:"o0"`
+}
