@@ -35,9 +35,6 @@ var (
 	log       *Logger
 	fbc       *fb.Client
 	nextViews map[string]string
-
-	incomingChannels []<-chan interface{}
-	outgoingChannels []chan<- interface{}
 )
 
 func init() {
@@ -47,8 +44,12 @@ func init() {
 
 	nextViews = make(map[string]string)
 
-	nextViews["friends"] = "messages"
-	nextViews["messages"] = "send"
+	//TODO
+	//nextViews["friends"] = "messages"
+	//nextViews["messages"] = "send"
+	//nextViews["send"] = "friends"
+
+	nextViews["friends"] = "send"
 	nextViews["send"] = "friends"
 
 	if !config.Main.EnableSend {
@@ -108,14 +109,16 @@ func main() {
 
 	//TODO create channels
 
-	in := make(chan interface{}, 10)
-	out := make(chan interface{}, 10)
-	friendListWidget := NewFriendListWidget(fbc, g, config.Main.FriendsICareAbout, in, out)
-	incomingChannels = append(incomingChannels, out) //different PoV, need to reverse
-	outgoingChannels = append(outgoingChannels, in)
+	friendListWidgetIn := make(chan interface{}, 10)
+	friendListWidgetOut := make(chan interface{}, 10)
+	friendListWidget := NewFriendListWidget(fbc, g, config.Main.FriendsICareAbout, friendListWidgetIn, friendListWidgetOut)
 
 	//messagesWidget := NewMessagesWidget(fbc, g, mainLogger, config.Main.FriendsICareAbout, config.EmojisToReplace)
 	//sendWidget := NewSendWidget(fbc, g, mainLogger, &friendListWidget)
+
+	sendWidgetIn := make(chan interface{}, 10)
+	sendWidgetOut := make(chan interface{}, 10)
+	sendWidget := NewSendWidget(fbc, g, sendWidgetIn, sendWidgetOut)
 
 	g.SetManager(
 		friendListWidget,
@@ -126,12 +129,29 @@ func main() {
 		g.SetManager(
 			friendListWidget,
 			//messagesWidget,
-			//sendWidget,
+			sendWidget,
 		)
 	}
 
+	fbEventsChannel := make(chan interface{}, 10)
+	fbc.SetEventChannel(fbEventsChannel)
 	fbc.Listen()
+
 	//TODO set & monitor channels
+	go func() {
+		for {
+			select {
+			case _ = <-fbEventsChannel:
+				//noop (for now)
+
+			case tmp := <-friendListWidgetOut:
+				sendWidgetIn <- tmp
+
+			case tmp := <-sendWidgetOut:
+				friendListWidgetIn <- tmp
+			}
+		}
+	}()
 
 	go initPrometheus()
 

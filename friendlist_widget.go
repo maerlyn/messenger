@@ -44,7 +44,9 @@ func NewFriendListWidget(client *fb.Client, g *gocui.Gui, fica []string, incomin
 	w.startUpdateLastActiveTimes()
 	w.startFriendLoad()
 
-	//TODO monitorchannels
+	go w.listenForEvents()
+
+	outgoing <- fica[0]
 
 	return &w
 }
@@ -53,9 +55,9 @@ func (w *FriendListWidget) changeSelectedFriend(diff int) {
 	w.selectedIndex = w.selectedIndex + diff
 
 	if w.selectedIndex < 0 {
-		w.selectedIndex = 0
-	} else if w.selectedIndex >= len(w.friendsICareAbout) {
 		w.selectedIndex = len(w.friendsICareAbout) - 1
+	} else if w.selectedIndex >= len(w.friendsICareAbout) {
+		w.selectedIndex = 0
 	}
 
 	event := SelectedFriendChanged{NewId: w.friendsICareAbout[w.selectedIndex]}
@@ -165,7 +167,17 @@ func (w *FriendListWidget) isLessThanMinutesAgo(lat int64, minutes int64) bool {
 	return time.Now().Unix()-60*minutes < lat
 }
 
-//TODO func monitorChannels
+func (w *FriendListWidget) listenForEvents() {
+	for {
+		tmp := <-w.incomingChannel
+
+		switch tmp.(type) {
+		case ChangeSelectedFriend:
+			csf := tmp.(ChangeSelectedFriend)
+			w.changeSelectedFriend(csf.Direction)
+		}
+	}
+}
 
 func (w FriendListWidget) Layout(g *gocui.Gui) error {
 	_, maxY := g.Size()

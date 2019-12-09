@@ -1,4 +1,5 @@
 package fb
+
 //TODO auto delivery receipt
 import (
 	"bytes"
@@ -541,7 +542,6 @@ func (c *Client) fetchLastSeqId() {
 	}
 
 	c.lastSeqId = responseObj.O0.Data.Viewer.MessageThreads.SyncSequenceId
-	fmt.Println(c.lastSeqId)
 }
 
 func (c *Client) doHttpRequest(method, url string, body io.Reader, timeout time.Duration) ([]byte, error) {
