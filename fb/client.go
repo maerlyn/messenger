@@ -1,5 +1,5 @@
 package fb
-
+//TODO auto delivery receipt
 import (
 	"bytes"
 	"context"
@@ -200,7 +200,6 @@ func (c *Client) Listen() {
 func (c *Client) mqttMessageHandler(client mqtt.Client, message mqtt.Message) {
 	t := fmt.Sprintf("%s %s", message.Topic(), message.Payload())
 	c.log.Raw(t)
-	fmt.Printf("%s\n", t)
 
 	switch message.Topic() {
 	case "/orca_presence":
@@ -652,4 +651,11 @@ func (c *Client) LoadFriend(id string) bool {
 	c.friendNames[id] = friendData.O0.Data.MessagingActors[0].Name
 
 	return true
+}
+
+func (c *Client) LastActiveAll() map[string]int64 {
+	c.lastActiveTimesMutex.Lock()
+	defer c.lastActiveTimesMutex.Unlock()
+
+	return c.lastActiveTimes
 }

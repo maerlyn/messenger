@@ -2,14 +2,19 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/jroimartin/gocui"
 	"github.com/maerlyn/messenger/fb"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -60,6 +65,17 @@ func init() {
 		panic("failed to redirect stderr to file2: " + err.Error())
 	}
 	_, _ = fmt.Fprintln(stderrFile, strings.Repeat("-", 40))
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGUSR1)
+	go func() {
+		for {
+			<-signals
+			log.App("USR1 received, reloading config")
+
+			loadConfig()
+		}
+	}()
 }
 
 func main() {
@@ -114,19 +130,10 @@ func main() {
 		)
 	}
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGUSR1)
-	go func() {
-		for {
-			<-signals
-			log.App("USR1 received, reloading config")
+	fbc.Listen()
+	//TODO set & monitor channels
 
-			loadConfig()
-		}
-	}()
-
-	//fbc.Listen()
-	//TODO monitor channels
+	go initPrometheus()
 
 	if err := keybindings(g); err != nil {
 		log.Error(fmt.Sprintf("%s\n", err))
@@ -195,4 +202,43 @@ func loadConfig() {
 	}
 
 	log.App(fmt.Sprintf("loaded config %+v", config))
+}
+
+func initPrometheus() {
+	metrics := make(map[string]prometheus.Gauge)
+	timer := time.NewTicker(5 * time.Second)
+
+	if config.Facebook.UserID == "561598959" {
+		metrics["1792034921"] = promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "fb_user_1792034921",
+		})
+
+		metrics["1792034921"].Set(0)
+	}
+
+	go func() {
+		for {
+			for userId, lat := range fbc.LastActiveAll() {
+				if _, ok := metrics[userId]; !ok {
+					metrics[userId] = promauto.NewGauge(prometheus.GaugeOpts{
+						Name: fmt.Sprintf("fb_user_%s", userId),
+					})
+				}
+
+				if time.Now().Unix()-60 <= lat {
+					metrics[userId].Set(1)
+				} else {
+					metrics[userId].Set(0)
+				}
+			}
+
+			<-timer.C
+		}
+	}()
+
+	http.Handle("/metrics", promhttp.Handler())
+	err := http.ListenAndServe(":2112", nil)
+	if err != nil {
+		log.Error(fmt.Sprintf("cannot listen on :2112: %s", err))
+	}
 }
