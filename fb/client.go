@@ -90,7 +90,11 @@ func NewClient(log Logger, conf Config) *Client {
 	c.lastActiveTimes = make(map[string]int64)
 	c.lastActiveTimesMutex = sync.Mutex{}
 
-	_ = c.fetchStartPage()
+	err := c.fetchStartPage()
+	if err != nil {
+		panic("initial startpage fetch failed: " + err.Error())
+	}
+
 	c.updateDtsg()
 	c.updateGroups()
 
@@ -100,7 +104,11 @@ func NewClient(log Logger, conf Config) *Client {
 		for {
 			<-t.C
 
-			_ = c.fetchStartPage()
+			err := c.fetchStartPage()
+			if err != nil {
+				log.Error(fmt.Sprintf("error fetching startpage: %s", err.Error()))
+				continue
+			}
 
 			c.updateDtsg()
 			c.updateGroups()
@@ -110,7 +118,7 @@ func NewClient(log Logger, conf Config) *Client {
 
 	c.updateFriendsList()
 	c.updateLastActiveTimes()
-	go c.LoadFriend(conf.UserID)
+	c.LoadFriend(conf.UserID)
 
 	c.sessionId = rand.Uint64()
 	id, _ := uuid.NewRandom()
@@ -198,7 +206,7 @@ func (c *Client) Listen() {
 	}
 }
 
-func (c *Client) mqttMessageHandler(client mqtt.Client, message mqtt.Message) {
+func (c *Client) mqttMessageHandler(_ mqtt.Client, message mqtt.Message) {
 	t := fmt.Sprintf("%s %s", message.Topic(), message.Payload())
 	c.log.Raw(t)
 
@@ -211,6 +219,9 @@ func (c *Client) mqttMessageHandler(client mqtt.Client, message mqtt.Message) {
 
 	case "/thread_typing":
 		c.handleThreadTyping(message.Payload())
+
+	case "/orca_typing_notifications":
+		c.handleTyping(message.Payload())
 	}
 }
 
@@ -226,6 +237,7 @@ func (c *Client) handleOrcaPresence(message []byte) {
 	for _, v := range obj.List {
 		p.List = append(p.List, presenceItem{UserID: v.UserID, Present: v.Present})
 	}
+	//TODO LAT kezeles fejben osszerakott logika alapjan
 
 	c.emit(p)
 }
@@ -300,6 +312,20 @@ func (c *Client) handleThreadTyping(message []byte) {
 		State:      obj.State,
 		Thread:     obj.Thread,
 	}
+
+	c.emit(t)
+}
+
+func (c *Client) handleTyping(message []byte) {
+	obj := typingNotification{}
+	err := json.Unmarshal(message, &obj)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error unmarshaling typing: %s\n", err))
+		return
+	}
+
+	t := Typing{}
+	t.fromFBType(obj)
 
 	c.emit(t)
 }
@@ -658,4 +684,54 @@ func (c *Client) LastActiveAll() map[string]int64 {
 	defer c.lastActiveTimesMutex.Unlock()
 
 	return c.lastActiveTimes
+}
+
+func (c *Client) GetLastMessages(userId string, limit int) []Message {
+	formData := url.Values{}
+	formData.Add("fb_dtsg", c.dtsg)
+	formData.Add("queries", fmt.Sprintf("{\"o0\":{\"doc_id\":\"1812394085554099\",\"query_params\":{\"id\":\"%s\",\"message_limit\":%d,\"load_messages\":true,\"load_read_receipts\":false,\"load_delivery_receipts\":false}}}", userId, limit))
+
+	body := bytes.NewBufferString(formData.Encode())
+
+	resp, err := c.doHttpRequest("POST", "https://www.facebook.com/api/graphqlbatch/", body, 10*time.Second)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error doing request for GetLastMessages: %s\n", err))
+		return []Message{}
+	}
+
+	line := strings.Split(string(resp), "\n")[0]
+
+	lmr := lastMessagesResponse{}
+	err = json.Unmarshal([]byte(line), &lmr)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error unmarshaling GetLastMessages: %s\n\nraw: %s\n\n", err, line))
+		return []Message{}
+	}
+
+	ret := make([]Message, 0, limit)
+
+	//TODO reply, reaction
+	for _, v := range lmr.O0.Data.MessageThread.Messages.Nodes {
+		msg := Message{}
+		msg.fromLastMessage(v)
+
+		ret = append(ret, msg)
+	}
+
+	return ret
+}
+
+func (c *Client) FriendName(userId string) string {
+	name := userId
+
+	v, ok := c.FriendNames()[userId]
+	if ok {
+		name = v
+	} else {
+		if c.LoadFriend(userId) {
+			name = c.FriendNames()[userId]
+		}
+	}
+
+	return name
 }

@@ -195,7 +195,7 @@ type deltaMessageReaction struct {
 	ThreadKey          threadKeyInt `json:"threadKey"`
 	MessageId          string       `json:"messageId"`
 	Action             int          `json:"action"` // 0 = add, 1 = remove
-	UserId             uint64       `json:"userId"` // actor
+	UserId             int64        `json:"userId"` // actor
 	Reaction           string       `json:"reaction"`
 	SenderId           uint64       `json:"senderId"` // original sender
 	OfflineThreadingId string       `json:"offlineThreadingId"`
@@ -251,4 +251,45 @@ type friendData struct {
 			} `json:"messaging_actors"`
 		} `json:"data"`
 	} `json:"o0"`
+}
+
+type lastMessagesResponse struct {
+	O0 struct {
+		Data struct {
+			MessageThread struct {
+				ThreadKey threadKey `json:"thread_key"`
+				Messages  struct {
+					Nodes []lastMessage `json:"nodes"`
+				} `json:"messages"`
+			} `json:"message_thread"`
+		} `json:"data"`
+	} `json:"o0"`
+}
+
+type lastMessage struct {
+	MessageId     string `json:"message_id"`
+	MessageSender struct {
+		Id string `json:"id"`
+	} `json:"message_sender"`
+	Message struct {
+		Text string `json:"text"`
+	} `json:"message"`
+	BlobAttachments []struct {
+		LargePreview struct {
+			Uri string `json:"uri"`
+		} `json:"large_preview"`
+	} `json:"blob_attachments"`
+	TimestampPrecise string `json:"timestamp_precise"`
+	MessageReactions []struct {
+		Reaction string `json:"reaction"`
+		User     struct {
+			Id string `json:"id"`
+		} `json:"user"`
+	} `json:"message_reactions"`
+}
+
+type typingNotification struct {
+	Type       string
+	State      int
+	SenderFbId int `json:"sender_fbid"`
 }

@@ -23,6 +23,7 @@ var (
 			FriendsICareAbout   []string `toml:"friends_i_care_about"`
 			EnableSend          bool     `toml:"enable_send"`
 			EnableNotifications bool     `toml:"enable_notifications"`
+			EnablePrometheus    bool     `toml:"enable_prometheus"`
 			ActivePing          bool     `toml:"active_ping"`
 		}
 		Facebook struct {
@@ -44,12 +45,8 @@ func init() {
 
 	nextViews = make(map[string]string)
 
-	//TODO
-	//nextViews["friends"] = "messages"
-	//nextViews["messages"] = "send"
-	//nextViews["send"] = "friends"
-
-	nextViews["friends"] = "send"
+	nextViews["friends"] = "messages"
+	nextViews["messages"] = "send"
 	nextViews["send"] = "friends"
 
 	if !config.Main.EnableSend {
@@ -95,8 +92,6 @@ func main() {
 		UserID:    config.Facebook.UserID,
 	})
 
-	//go InitPrometheus(fbc, log)
-
 	//go func() {
 	//	//fetch friend images after 5s
 	//	t := time.NewTimer(5 * time.Second)
@@ -107,28 +102,27 @@ func main() {
 	//	}
 	//}()
 
-	//TODO create channels
-
 	friendListWidgetIn := make(chan interface{}, 10)
 	friendListWidgetOut := make(chan interface{}, 10)
 	friendListWidget := NewFriendListWidget(fbc, g, config.Main.FriendsICareAbout, friendListWidgetIn, friendListWidgetOut)
-
-	//messagesWidget := NewMessagesWidget(fbc, g, mainLogger, config.Main.FriendsICareAbout, config.EmojisToReplace)
-	//sendWidget := NewSendWidget(fbc, g, mainLogger, &friendListWidget)
 
 	sendWidgetIn := make(chan interface{}, 10)
 	sendWidgetOut := make(chan interface{}, 10)
 	sendWidget := NewSendWidget(fbc, g, sendWidgetIn, sendWidgetOut)
 
+	messagesWidgetIn := make(chan interface{}, 10)
+	messagesWidgetOut := make(chan interface{}, 10)
+	messagesWidget := NewMessagesWidget(fbc, g, messagesWidgetIn, messagesWidgetOut, config.Main.FriendsICareAbout)
+
 	g.SetManager(
 		friendListWidget,
-		//messagesWidget,
+		messagesWidget,
 	)
 
 	if config.Main.EnableSend {
 		g.SetManager(
 			friendListWidget,
-			//messagesWidget,
+			messagesWidget,
 			sendWidget,
 		)
 	}
@@ -137,23 +131,34 @@ func main() {
 	fbc.SetEventChannel(fbEventsChannel)
 	fbc.Listen()
 
-	//TODO set & monitor channels
 	go func() {
 		for {
 			select {
-			case _ = <-fbEventsChannel:
-				//noop (for now)
+			case tmp := <-fbEventsChannel:
+				friendListWidgetIn <- tmp
+				messagesWidgetIn <- tmp
+				sendWidgetIn <- tmp
+
+				//TODO log
 
 			case tmp := <-friendListWidgetOut:
 				sendWidgetIn <- tmp
+				messagesWidgetIn <- tmp
 
 			case tmp := <-sendWidgetOut:
 				friendListWidgetIn <- tmp
+				messagesWidgetIn <- tmp
+
+			case tmp := <-messagesWidgetOut:
+				friendListWidgetIn <- tmp
+				sendWidgetIn <- tmp
 			}
 		}
 	}()
 
-	go initPrometheus()
+	if config.Main.EnablePrometheus {
+		go initPrometheus()
+	}
 
 	if err := keybindings(g); err != nil {
 		log.Error(fmt.Sprintf("%s\n", err))
@@ -228,12 +233,12 @@ func initPrometheus() {
 	metrics := make(map[string]prometheus.Gauge)
 	timer := time.NewTicker(5 * time.Second)
 
-	if config.Facebook.UserID == "561598959" {
-		metrics["1792034921"] = promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "fb_user_1792034921",
+	for _, v := range config.Main.FriendsICareAbout {
+		metrics[v] = promauto.NewGauge(prometheus.GaugeOpts{
+			Name: fmt.Sprintf("fb_user_%s", v),
 		})
 
-		metrics["1792034921"].Set(0)
+		metrics[v].Set(0)
 	}
 
 	go func() {

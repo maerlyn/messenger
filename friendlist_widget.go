@@ -175,6 +175,11 @@ func (w *FriendListWidget) listenForEvents() {
 		case ChangeSelectedFriend:
 			csf := tmp.(ChangeSelectedFriend)
 			w.changeSelectedFriend(csf.Direction)
+
+		case fb.Message:
+			msg := tmp.(fb.Message)
+			w.hasUnread[msg.ActorFbId] = true
+			w.updateFriendsList()
 		}
 	}
 }

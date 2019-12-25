@@ -4,3 +4,6 @@ run:
 fmt:
 	go fmt *.go
 	go fmt fb/*.go
+
+build:
+	go build -o messenger *.go

@@ -129,7 +129,7 @@ func TestReadReceipt(t *testing.T) {
 		if assert.IsType(t, ReadReceipt{}, obj) {
 			r := obj.(ReadReceipt)
 
-			assert.Equal(t, "1575379819325", r.TimestampMs)
+			assert.Equal(t, int64(1575379819), r.Timestamp)
 			assert.Equal(t, "111", r.ActorFbId)
 			assert.Equal(t, "321321", r.Thread.ThreadFbId)
 			assert.Equal(t, "", r.Thread.OtherUserFbId)
@@ -215,7 +215,7 @@ func TestMessageRaction(t *testing.T) {
 
 			assert.Equal(t, "mid.foo", mr.MessageId)
 			assert.Equal(t, "321", mr.Thread.ThreadFbId)
-			assert.Equal(t, uint64(123), mr.ActorFbId)
+			assert.Equal(t, "123", mr.ActorFbId)
 			assert.Equal(t, uint64(456), mr.SenderFbId)
 			assert.Equal(t, "😍", mr.Reaction)
 		}
@@ -249,6 +249,28 @@ func TestMessageReply(t *testing.T) {
 			assert.Equal(t, uint64(52), mr.Message.ActorFbId)
 			assert.Equal(t, uint64(157), mr.Message.Timestamp)
 			assert.Equal(t, "Oda", mr.Message.Body)
+		}
+	}
+}
+
+func TestTyping(t *testing.T) {
+	rawJson := []byte(`{"type":"typ","sender_fbid":123456,"state":1}`)
+	channel := make(chan interface{}, 5)
+
+	client := Client{log: &testLogger{}}
+	client.SetEventChannel(channel)
+
+	client.handleTyping(rawJson)
+
+	if assert.Len(t, channel, 1) {
+		obj := <-channel
+
+		if assert.IsType(t, Typing{}, obj) {
+			typ := obj.(Typing)
+
+			assert.Equal(t, "typ", typ.Type)
+			assert.Equal(t, "123456", typ.SenderFbId)
+			assert.Equal(t, 1, typ.State)
 		}
 	}
 }
