@@ -112,7 +112,7 @@ func main() {
 
 	messagesWidgetIn := make(chan interface{}, 10)
 	messagesWidgetOut := make(chan interface{}, 10)
-	messagesWidget := NewMessagesWidget(fbc, g, messagesWidgetIn, messagesWidgetOut, config.Main.FriendsICareAbout)
+	messagesWidget := NewMessagesWidget(fbc, g, messagesWidgetIn, messagesWidgetOut, config.Main.FriendsICareAbout, log)
 
 	g.SetManager(
 		friendListWidget,
@@ -139,7 +139,23 @@ func main() {
 				messagesWidgetIn <- tmp
 				sendWidgetIn <- tmp
 
-				//TODO log
+				switch obj := tmp.(type) {
+				case fb.Message:
+					log.User(obj.Thread.UniqueId(), obj.String(fbc))
+					fbc.MarkAsDelivered(obj)
+					//TODO save attachments
+
+				case fb.MessageReply:
+					log.User(obj.Message.Thread.UniqueId(), obj.String(fbc))
+
+				case fb.ReadReceipt:
+					if !obj.IsGroup() {
+						log.User(obj.Thread.UniqueId(), obj.String(fbc))
+					}
+
+				case fb.Typing: // 1v1 message, groups are ThreadTyping
+					log.User(obj.SenderFbId, obj.String(fbc))
+				}
 
 			case tmp := <-friendListWidgetOut:
 				sendWidgetIn <- tmp
@@ -197,6 +213,8 @@ func nextView(g *gocui.Gui, v *gocui.View) error {
 }
 
 func quit(_ *gocui.Gui, _ *gocui.View) error {
+	fbc.StopListening()
+
 	return gocui.ErrQuit
 }
 
