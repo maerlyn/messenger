@@ -14,7 +14,7 @@ type MessagesWidget struct {
 	self *MessagesWidget
 	gui  *gocui.Gui
 	fbc  *fb.Client
-	log *Logger
+	log  *Logger
 
 	selectedFriendId string
 	messages         map[string][]interface{}
@@ -33,7 +33,7 @@ func NewMessagesWidget(client *fb.Client, g *gocui.Gui, incoming <-chan interfac
 		outgoingChannel:  outgoing,
 		selectedFriendId: fica[0],
 		messages:         make(map[string][]interface{}, 0),
-		log: log,
+		log:              log,
 	}
 	w.self = &w
 
