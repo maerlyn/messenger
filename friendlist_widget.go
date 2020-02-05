@@ -171,17 +171,37 @@ func (w *FriendListWidget) listenForEvents() {
 	for {
 		tmp := <-w.incomingChannel
 
-		switch tmp.(type) {
+		switch obj := tmp.(type) {
 		case ChangeSelectedFriend:
-			csf := tmp.(ChangeSelectedFriend)
-			w.changeSelectedFriend(csf.Direction)
+			w.changeSelectedFriend(obj.Direction)
 
 		case fb.Message:
-			msg := tmp.(fb.Message)
-			w.hasUnread[msg.ActorFbId] = true
-			w.updateFriendsList()
+			w.markUserUnread(obj.Thread.UniqueId())
+
+		case fb.ReadReceipt:
+			w.markUserUnread(obj.Thread.UniqueId())
+
+		case fb.Typing:
+			w.markUserUnread(obj.SenderFbId)
 		}
 	}
+}
+
+func (w *FriendListWidget) ensureUserInList(userId string) {
+	for _, v := range w.friendsICareAbout {
+		if userId == v {
+			return
+		}
+	}
+
+	w.friendsICareAbout = append(w.friendsICareAbout, userId)
+	w.friendsToLoad <- userId
+}
+
+func (w *FriendListWidget) markUserUnread(userId string) {
+	w.ensureUserInList(userId)
+	w.hasUnread[userId] = true
+	w.updateFriendsList()
 }
 
 func (w FriendListWidget) Layout(g *gocui.Gui) error {
