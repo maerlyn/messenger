@@ -14,6 +14,7 @@ type MessagesWidget struct {
 	self *MessagesWidget
 	gui  *gocui.Gui
 	fbc  *fb.Client
+	log *Logger
 
 	selectedFriendId string
 	messages         map[string][]interface{}
@@ -24,7 +25,7 @@ type MessagesWidget struct {
 
 const SEPARATOR = "separator"
 
-func NewMessagesWidget(client *fb.Client, g *gocui.Gui, incoming <-chan interface{}, outgoing chan<- interface{}, fica []string) *MessagesWidget {
+func NewMessagesWidget(client *fb.Client, g *gocui.Gui, incoming <-chan interface{}, outgoing chan<- interface{}, fica []string, log *Logger) *MessagesWidget {
 	w := MessagesWidget{
 		fbc:              client,
 		gui:              g,
@@ -32,6 +33,7 @@ func NewMessagesWidget(client *fb.Client, g *gocui.Gui, incoming <-chan interfac
 		outgoingChannel:  outgoing,
 		selectedFriendId: fica[0],
 		messages:         make(map[string][]interface{}, 0),
+		log: log,
 	}
 	w.self = &w
 
@@ -75,6 +77,9 @@ func (w *MessagesWidget) insertTerminator(g *gocui.Gui, v *gocui.View) error {
 		}
 
 		width, _ := w.Size()
+		if width < 0 {
+			width = 1
+		}
 		_, _ = fmt.Fprintln(v, strings.Repeat("-", width))
 
 		return nil
@@ -104,7 +109,7 @@ func (w *MessagesWidget) loadLastMessages(fica []string) {
 			w.updateConversation()
 		}
 
-		time.Sleep(5 * time.Second) // to prevent flooding requests to fb
+		time.Sleep(1 * time.Second) // to prevent flooding requests to fb
 	}
 }
 
@@ -122,8 +127,9 @@ func (w *MessagesWidget) updateConversation() {
 			switch msg := message.(type) {
 			case fb.Message:
 				_, _ = fmt.Fprintf(v, "%s\n", msg.String(fbc))
-				//TODO reply
-				//TODO reaction
+
+			case fb.ReadReceipt:
+				_, _ = fmt.Fprintf(v, "%s\n", msg.String(fbc))
 
 			case string:
 				if msg == SEPARATOR {
@@ -144,30 +150,86 @@ func (w *MessagesWidget) listenForEvents() {
 	for {
 		event := <-w.incomingChannel
 
-		switch event.(type) {
+		switch obj := event.(type) {
 		case SelectedFriendChanged:
-			sfc := event.(SelectedFriendChanged)
-			w.selectedFriendId = sfc.NewId
+			w.selectedFriendId = obj.NewId
 			w.updateConversation()
 
 		case fb.Message:
-			msg := event.(fb.Message)
-			w.ensureConversation(msg.ActorFbId)
-			w.messages[msg.ActorFbId] = append(w.messages[msg.ActorFbId], msg)
+			w.ensureConversation(obj.Thread.UniqueId())
+			w.messages[obj.Thread.UniqueId()] = append(w.messages[obj.Thread.UniqueId()], obj)
+			w.printIfCurrentconversation(obj.Thread.UniqueId(), obj.String(w.fbc))
 
-			if msg.ActorFbId == w.selectedFriendId {
-				w.gui.Update(func(g *gocui.Gui) error {
-					v, err := g.View("messages")
-					if err != nil {
-						panic(err)
-					}
+		case fb.ReadReceipt:
+			if obj.IsGroup() {
+				continue
+			}
 
-					_, _ = fmt.Fprintln(v, msg.String(fbc))
+			w.ensureConversation(obj.Thread.UniqueId())
+			w.messages[obj.Thread.UniqueId()] = append(w.messages[obj.Thread.UniqueId()], obj)
+			w.printIfCurrentconversation(obj.Thread.UniqueId(), obj.String(w.fbc))
 
-					return nil
-				})
+		case fb.Typing:
+			w.ensureConversation(obj.SenderFbId)
+			w.messages[obj.SenderFbId] = append(w.messages[obj.SenderFbId], obj)
+			w.printIfCurrentconversation(obj.SenderFbId, obj.String(w.fbc))
+
+		case fb.MessageReply:
+			w.ensureConversation(obj.RepliedToMessage.Thread.UniqueId())
+			if index := w.findMessage(obj.RepliedToMessage.Thread.UniqueId(), obj.RepliedToMessage.MessageId); index != -1 {
+				msg := (w.messages[obj.RepliedToMessage.Thread.UniqueId()][index]).(fb.Message)
+				msg.Replies = append(msg.Replies, obj)
+				w.messages[obj.RepliedToMessage.Thread.UniqueId()][index] = msg
+
+				if msg.Thread.UniqueId() == w.selectedFriendId {
+					w.updateConversation()
+				}
+			} else {
+				log.Error(fmt.Sprintf("[messages] cannot find message %s", obj.RepliedToMessage.MessageId))
+			}
+
+		case fb.MessageReaction:
+			w.ensureConversation(obj.Thread.UniqueId())
+			if index := w.findMessage(obj.Thread.UniqueId(), obj.MessageId); index != -1 {
+				msg := (w.messages[obj.Thread.UniqueId()][index]).(fb.Message)
+				msg.Reactions = append(msg.Reactions, obj)
+				w.messages[obj.Thread.UniqueId()][index] = msg
+
+				if msg.Thread.UniqueId() == w.selectedFriendId {
+					w.updateConversation()
+				}
+			} else {
+				log.Error(fmt.Sprintf("[messages] cannot find message %s", obj.MessageId))
 			}
 		}
-		//TODO react, reply, stb.
 	}
+}
+
+func (w *MessagesWidget) printIfCurrentconversation(userId, text string) {
+	if w.selectedFriendId != userId {
+		return
+	}
+
+	w.gui.Update(func(g *gocui.Gui) error {
+		v, err := g.View("messages")
+		if err != nil {
+			panic(err)
+		}
+
+		_, _ = fmt.Fprintln(v, text)
+
+		return nil
+	})
+}
+
+func (w *MessagesWidget) findMessage(uniqueId, messageId string) int {
+	for index, obj := range w.messages[uniqueId] {
+		if msg, ok := obj.(fb.Message); ok {
+			if msg.MessageId == messageId {
+				return index
+			}
+		}
+	}
+
+	return -1
 }
