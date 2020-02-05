@@ -1,0 +1,15 @@
+[main]
+# these are the people initially in the friend list, can be user or group IDs
+friends_i_care_about = [
+    "1",
+    "2",
+]
+enable_prometheus = true # do you want the prometheus exporter enabled?
+enable_send = true # do you want the send widget?
+enable_notifications = true # popup notifications via libnotify
+active_ping = true # unimplemented yet
+
+[facebook]
+cookie = '' # your facebook cookies, used instead of a user/pass style login
+user_agent = '' # the user-agent to user
+user_id = '' # your own user id
