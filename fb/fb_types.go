@@ -45,7 +45,7 @@ type lastSeqIdResponse struct {
 type orcaPresence struct {
 	ListType string `json:"list_type"`
 	List     []struct {
-		UserID  uint64 `json:"u"`
+		UserID  int64  `json:"u"`
 		Present uint8  `json:"p"`
 		C       uint64 `json:"c"`
 	} `json:"list"`
@@ -206,7 +206,7 @@ type deltaMessageReply struct {
 		MessageMetadata struct {
 			ThreadKey threadKeyInt `json:"threadKey"`
 			MessageId string       `json:"messageId"`
-			ActorFbId uint64       `json:"actorFbId"`
+			ActorFbId int64        `json:"actorFbId"`
 			Timestamp uint64       `json:"timestamp"`
 		} `json:"messageMetadata"`
 
@@ -217,7 +217,7 @@ type deltaMessageReply struct {
 		MessageMetadata struct {
 			ThreadKey threadKeyInt `json:"threadKey"`
 			MessageId string       `json:"messageId"`
-			ActorFbId uint64       `json:"actorFbId"`
+			ActorFbId int64        `json:"actorFbId"`
 			Timestamp uint64       `json:"timestamp"`
 		} `json:"messageMetadata"`
 
@@ -292,4 +292,8 @@ type typingNotification struct {
 	Type       string
 	State      int
 	SenderFbId int `json:"sender_fbid"`
+}
+
+type errorCode struct {
+	ErrorCode string `json:"errorCode"`
 }

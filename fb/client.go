@@ -1,6 +1,5 @@
 package fb
 
-//TODO auto delivery receipt
 import (
 	"bytes"
 	"context"
@@ -18,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eclipse/paho.mqtt.golang"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/google/uuid"
 )
 
@@ -61,6 +60,9 @@ type Client struct {
 
 	sessionId uint64
 	clientId  string
+	syncToken string
+
+	mqttClient mqtt.Client
 }
 
 func NewClient(log Logger, conf Config) *Client {
@@ -124,240 +126,13 @@ func NewClient(log Logger, conf Config) *Client {
 	id, _ := uuid.NewRandom()
 	c.clientId = id.String()
 
+	c.log.App(fmt.Sprintf("generated client id: %s session id: %s", c.clientId, strconv.FormatInt(int64(c.sessionId), 10)))
+
 	return c
 }
 
 func (c *Client) SetEventChannel(channel chan<- interface{}) {
 	c.eventChannel = channel
-}
-
-func (c *Client) Listen() {
-	c.fetchLastSeqId()
-
-	h := http.Header{}
-	h.Add("Cookie", c.config.Cookie)
-	h.Add("User-Agent", c.config.UserAgent)
-	h.Add("Accept", "*/*")
-	h.Add("Referer", "https://www.facebook.com")
-
-	connOpts := mqtt.
-		NewClientOptions().
-		AddBroker(fmt.Sprintf("wss://edge-chat.facebook.com/chat?region=lla&sid=%d", c.sessionId)).
-		SetClientID("mqttwsclient").
-		SetUsername(fmt.Sprintf(`{
-			"u": "%s",
-			"s": %d, 
-            "cp": 3,"ecp": 10,"chat_on": true,"fg": true,
-			"d": "%s",
-			"ct": "websocket","mqtt_sid": "","aid": 219994525426954,"st": [],"pm": [],"dc": "","no_auto_fg": true,"gas": null}`,
-			c.config.UserID, c.sessionId, c.clientId)).
-		SetProtocolVersion(3).
-		SetHTTPHeaders(h).
-		SetAutoReconnect(true).
-		SetResumeSubs(true).
-		SetCleanSession(true)
-
-	connOpts.OnConnect = func(client mqtt.Client) {
-		for _, topic := range []string{
-			"/inbox",
-			"/legacy_web",
-			"/webrtc",
-			"/br_sr",
-			"/sr_res",
-			"/t_ms",
-			"/thread_typing",
-			"/orca_typing_notifications",
-			"/notify_disconnect",
-			"/orca_presence",
-			"/mercury",
-			"/messaging_events",
-			"/pp",
-			//"/t_p",
-			"/t_rtc",
-			"/webrct_response",
-		} {
-			if token := client.Subscribe(topic, byte(0), c.mqttMessageHandler); token.Wait() && token.Error() != nil {
-				c.log.Error(fmt.Sprintf("cannot subscribe on mqtt topic %s: %s\n", topic, token.Error()))
-			}
-		}
-
-		token := client.Unsubscribe("/orca_message_notifications")
-		token.Wait()
-
-		client.Publish("/messenger_sync_create_queue", byte(0), false, fmt.Sprintf(`{
-			"sync_api_version": 10,
-			"max_deltas_able_to_process": 1000,
-			"delta_batch_size": 500,
-			"encoding": "JSON",
-			"entity_fbid": "%s",
-			"initial_titan_sequence_id": "%s",
-			"device_params": null
-		}`, c.config.UserID, c.lastSeqId))
-	}
-
-	mqtt.ERROR = logMQTTToApp{appLogger: c.log}
-
-	client := mqtt.NewClient(connOpts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		c.log.Error(fmt.Sprintf("cannot mqtt connect: %s\n", token.Error()))
-		return
-	} else {
-		c.log.App("mqtt connected")
-	}
-}
-
-func (c *Client) mqttMessageHandler(_ mqtt.Client, message mqtt.Message) {
-	t := fmt.Sprintf("%s %s", message.Topic(), message.Payload())
-	c.log.Raw(t)
-
-	switch message.Topic() {
-	case "/orca_presence":
-		c.handleOrcaPresence(message.Payload())
-
-	case "/t_ms":
-		c.handleDeltaLikeMessage(message.Payload())
-
-	case "/thread_typing":
-		c.handleThreadTyping(message.Payload())
-
-	case "/orca_typing_notifications":
-		c.handleTyping(message.Payload())
-	}
-}
-
-func (c *Client) handleOrcaPresence(message []byte) {
-	obj := orcaPresence{}
-	err := json.Unmarshal(message, &obj)
-	if err != nil {
-		c.log.Error(fmt.Sprintf("error unmarshaling orca_presence: %s\n", err))
-		return
-	}
-
-	p := Presence{ListType: obj.ListType}
-	for _, v := range obj.List {
-		p.List = append(p.List, presenceItem{UserID: v.UserID, Present: v.Present})
-	}
-	//TODO LAT kezeles fejben osszerakott logika alapjan
-
-	c.emit(p)
-}
-
-func (c *Client) handleDeltaLikeMessage(message []byte) {
-	if strings.Contains(string(message), "firstDeltaSeqId") || strings.Contains(string(message), "lastIssuedSeqId") {
-		obj := deltaSeqIds{}
-		err := json.Unmarshal(message, &obj)
-		if err != nil {
-			c.log.Error(fmt.Sprintf("error unmarshaling deltaSeqIds: %s\n", err))
-			return
-		}
-
-		if obj.LastIssuedSeqId == 0 {
-			c.lastSeqId = strconv.FormatInt(obj.FirstDeltaSeqId, 10)
-			c.log.App(fmt.Sprintf("got first seq id %s", c.lastSeqId))
-			return
-		} else {
-			c.lastSeqId = strconv.FormatInt(obj.LastIssuedSeqId, 10)
-			c.log.App(fmt.Sprintf("got last issued seq id %s", c.lastSeqId))
-			// no return
-		}
-	}
-
-	if strings.Contains(string(message), "deltas") {
-		dm := deltaWrapper{}
-		err := json.Unmarshal(message, &dm)
-		if err != nil {
-			c.log.Error(fmt.Sprintf("error unmarshaling delta message: %s\n", err))
-			return
-		}
-
-		for _, delta := range dm.Deltas {
-			if delta.IrisSeqId > c.lastSeqId {
-				c.lastSeqId = delta.IrisSeqId
-			}
-
-			if delta.isClientPayload() {
-				decoded := delta.decodeClientPayload()
-				c.log.Raw(fmt.Sprintf("decoded payload: %s", decoded))
-
-				c.handleClientPayload(decoded)
-			}
-
-			if delta.isNewMessage() {
-				nm := Message{}
-				nm.fromFBType(delta)
-
-				c.emit(nm)
-			}
-
-			if delta.isReadReceipt() {
-				rr := ReadReceipt{}
-				rr.fromFBType(delta)
-
-				c.emit(rr)
-			}
-		}
-	}
-}
-
-func (c *Client) handleThreadTyping(message []byte) {
-	obj := threadTyping{}
-	err := json.Unmarshal(message, &obj)
-	if err != nil {
-		c.log.Error(fmt.Sprintf("error unmarshaling thread_typing: %s\n", err))
-		return
-	}
-
-	t := ThreadTyping{
-		SenderFbId: obj.SenderFbId,
-		State:      obj.State,
-		Thread:     obj.Thread,
-	}
-
-	c.emit(t)
-}
-
-func (c *Client) handleTyping(message []byte) {
-	obj := typingNotification{}
-	err := json.Unmarshal(message, &obj)
-	if err != nil {
-		c.log.Error(fmt.Sprintf("error unmarshaling typing: %s\n", err))
-		return
-	}
-
-	t := Typing{}
-	t.fromFBType(obj)
-
-	c.emit(t)
-}
-
-func (c *Client) handleClientPayload(payload []byte) {
-	obj := clientPayload{}
-	err := json.Unmarshal(payload, &obj)
-	if err != nil {
-		c.log.Error(fmt.Sprintf("error unmarshaling client payload: %s\n", err))
-		return
-	}
-
-	for _, v := range obj.Deltas {
-		if v.Reaction.MessageId != "" { //simple check to see if has reaction
-			mr := MessageReaction{}
-			mr.fromFBType(v.Reaction)
-
-			c.emit(mr)
-		}
-
-		if v.Reply.Message.MessageMetadata.MessageId != "" {
-			s := strconv.Itoa(v.Reply.Message.IrisSeqId)
-			if s > c.lastSeqId {
-				c.lastSeqId = s
-			}
-
-			mr := MessageReply{}
-			mr.fromFBType(v.Reply)
-
-			c.emit(mr)
-		}
-	}
 }
 
 func (c *Client) emit(event interface{}) {
@@ -710,7 +485,8 @@ func (c *Client) GetLastMessages(userId string, limit int) []Message {
 
 	ret := make([]Message, 0, limit)
 
-	//TODO reply, reaction
+	// replies _could_ be handled, intentionally omitting that
+	// they get delivered here like normal messages, only with the reply-to message id set
 	for _, v := range lmr.O0.Data.MessageThread.Messages.Nodes {
 		msg := Message{}
 		msg.fromLastMessage(v)
@@ -734,4 +510,21 @@ func (c *Client) FriendName(userId string) string {
 	}
 
 	return name
+}
+
+func (c *Client) MarkAsDelivered(msg Message) {
+	formData := url.Values{}
+	formData.Add("fb_dtsg", c.dtsg)
+	formData.Add("message_ids[0]", msg.MessageId)
+	formData.Add(fmt.Sprintf("thread_ids[%s][0]", msg.Thread.UniqueId()), msg.MessageId)
+
+	body := bytes.NewBufferString(formData.Encode())
+
+	resp, err := c.doHttpRequest("POST", "https://www.facebook.com/ajax/mercury/delivery_receipts.php", body, 10*time.Second)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error doing request for MarkAsDelivered: %s\n", err))
+		return
+	}
+
+	c.log.App(fmt.Sprintf("MarkAsRead response: %s", resp))
 }

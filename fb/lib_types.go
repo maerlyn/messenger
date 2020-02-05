@@ -11,7 +11,7 @@ const (
 )
 
 type presenceItem struct {
-	UserID  uint64
+	UserID  string
 	Present uint8
 }
 type Presence struct {
@@ -95,12 +95,29 @@ func (a *MessageAttachment) IsLike() bool {
 	return a.StickerAttachment.Label == "Like, thumbs up"
 }
 
+func (a *MessageAttachment) String() string {
+	if a.BlobAttachment.LargePreview.Uri != "" {
+		return a.BlobAttachment.LargePreview.Uri
+	}
+
+	if a.StickerAttachment.Url != "" {
+		if a.IsLike() {
+			return fmt.Sprintf("[%s]", a.StickerAttachment.Label)
+		} else {
+			return fmt.Sprintf("[%s] %s", a.StickerAttachment.Label, a.StickerAttachment.Url)
+		}
+	}
+
+	return ""
+}
+
 type Message struct {
 	Attachments []MessageAttachment
 
-	ActorFbId string
-	MessageId string
-	Timestamp string
+	ActorFbId        string
+	MessageId        string
+	TimestampPrecise int64
+	Time             time.Time
 
 	Thread thread
 
@@ -113,8 +130,11 @@ type Message struct {
 func (n *Message) fromFBType(orig delta) {
 	n.ActorFbId = orig.MessageMetadata.ActorFbId
 	n.MessageId = orig.MessageMetadata.MessageId
-	n.Timestamp = orig.MessageMetadata.Timestamp
 	n.Body = orig.Body
+
+	ti, _ := strconv.Atoi(orig.MessageMetadata.Timestamp)
+	n.TimestampPrecise = int64(ti)
+	n.Time = time.Unix(int64(ti/1000), 0)
 
 	n.Thread.fromFBType(orig.MessageMetadata.ThreadKey)
 	n.Thread.Participants = orig.Participants
@@ -132,7 +152,8 @@ func (n *Message) fromLastMessage(orig lastMessage) {
 	n.MessageId = orig.MessageId
 
 	ti, _ := strconv.Atoi(orig.TimestampPrecise)
-	n.Timestamp = strconv.Itoa(ti / 1000)
+	n.TimestampPrecise = int64(ti)
+	n.Time = time.Unix(int64(ti/1000), 0)
 
 	n.Body = orig.Message.Text
 
@@ -148,13 +169,10 @@ func (n *Message) fromLastMessage(orig lastMessage) {
 }
 
 func (n *Message) String(fbc *Client) string {
-	dateInt, _ := strconv.Atoi(n.Timestamp)
-	date := time.Unix(int64(dateInt), 0)
-
 	name := fbc.FriendName(n.ActorFbId)
 
 	text := fmt.Sprintf("[%s] %s: %s",
-		date.Format(DateFormatYmdHis),
+		n.Time.Format(DateFormatYmdHis),
 		name,
 		n.Body)
 
@@ -162,26 +180,9 @@ func (n *Message) String(fbc *Client) string {
 		text = fmt.Sprintf("%s\n    %s", text, r.String(fbc))
 	}
 
-	//TODO
-	//if len(d.Delta.Attachments) > 0 {
-	//	for _, v := range d.Delta.Attachments {
-	//		if v.Mercury.BlobAttachment.LargePreview.Uri != "" {
-	//			text = fmt.Sprintf("%s\n    %s", text, v.Mercury.BlobAttachment.LargePreview.Uri)
-	//		}
-	//
-	//		if v.Mercury.BlobAttachment.AnimatedImage.Uri != "" {
-	//			text = fmt.Sprintf("%s\n    %s", text, v.Mercury.BlobAttachment.AnimatedImage.Uri)
-	//		}
-	//
-	//		if v.Mercury.StickerAttachment.Url != "" {
-	//			if v.Mercury.StickerAttachment.Label == "Like, thumbs up" {
-	//				text = fmt.Sprintf("%s\n    [%s]", text, v.Mercury.StickerAttachment.Label)
-	//			} else {
-	//				text = fmt.Sprintf("%s\n    [%s] %s", text, v.Mercury.StickerAttachment.Label, v.Mercury.StickerAttachment.Url)
-	//			}
-	//		}
-	//	}
-	//}
+	for _, att := range n.Attachments {
+		text = fmt.Sprintf("%s\n    %s", text, att.String())
+	}
 
 	return text
 }
@@ -253,7 +254,7 @@ type MessageReply struct {
 	RepliedToMessage struct {
 		Thread    thread
 		MessageId string
-		ActorFbId uint64
+		ActorFbId string
 		Timestamp uint64
 		Body      string
 	}
@@ -261,7 +262,7 @@ type MessageReply struct {
 	Message struct {
 		Thread    thread
 		MessageId string
-		ActorFbId uint64
+		ActorFbId string
 		Timestamp uint64
 		Body      string
 	}
@@ -271,16 +272,26 @@ func (r *MessageReply) fromFBType(orig deltaMessageReply) {
 	r.RepliedToMessage.Thread.OtherUserFbId = strconv.FormatInt(orig.RepliedToMessage.MessageMetadata.ThreadKey.OtherUserFbId, 10)
 	r.RepliedToMessage.Thread.ThreadFbId = strconv.FormatInt(orig.RepliedToMessage.MessageMetadata.ThreadKey.ThreadFbId, 10)
 	r.RepliedToMessage.MessageId = orig.RepliedToMessage.MessageMetadata.MessageId
-	r.RepliedToMessage.ActorFbId = orig.RepliedToMessage.MessageMetadata.ActorFbId
+	r.RepliedToMessage.ActorFbId = strconv.Itoa(int(orig.RepliedToMessage.MessageMetadata.ActorFbId))
 	r.RepliedToMessage.Timestamp = orig.RepliedToMessage.MessageMetadata.Timestamp
 	r.RepliedToMessage.Body = orig.RepliedToMessage.Body
 
 	r.Message.Thread.OtherUserFbId = strconv.FormatInt(orig.Message.MessageMetadata.ThreadKey.OtherUserFbId, 10)
 	r.Message.Thread.ThreadFbId = strconv.FormatInt(orig.Message.MessageMetadata.ThreadKey.ThreadFbId, 10)
 	r.Message.MessageId = orig.Message.MessageMetadata.MessageId
-	r.Message.ActorFbId = orig.Message.MessageMetadata.ActorFbId
+	r.Message.ActorFbId = strconv.Itoa(int(orig.Message.MessageMetadata.ActorFbId))
 	r.Message.Timestamp = orig.Message.MessageMetadata.Timestamp
 	r.Message.Body = orig.Message.Body
+}
+
+func (r *MessageReply) String(fbc *Client) string {
+	date := time.Unix(int64(r.Message.Timestamp), 0)
+	name := fbc.FriendName(r.Message.ActorFbId)
+
+	return fmt.Sprintf("[%s] %s: %s",
+		date.Format(DateFormatYmdHis),
+		name,
+		r.Message.Body)
 }
 
 type Typing struct {

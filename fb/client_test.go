@@ -1,6 +1,7 @@
 package fb
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,7 +61,7 @@ func TestNew11Message(t *testing.T) {
 			nm := obj.(Message)
 			assert.Equal(t, "123456789", nm.ActorFbId, "new message actor expected 123456789, got %s", nm.ActorFbId)
 			assert.Equal(t, "mid.foo", nm.MessageId, "new message messageId expected mid.foo, got %s", nm.MessageId)
-			assert.Equal(t, "987654321", nm.Timestamp, "new message timestamp expected 987654321, got %s", nm.Timestamp)
+			assert.Equal(t, int64(987654321), nm.TimestampPrecise)
 			assert.Equal(t, "1112222", nm.Thread.OtherUserFbId, "new message otherUserFbId expected 112222, got %s", nm.Thread.OtherUserFbId)
 			assert.Empty(t, nm.Thread.ThreadFbId, "new message threadFbId expected empty")
 			assert.Empty(t, nm.Thread.Participants, "new message participants expected empty")
@@ -76,6 +77,8 @@ func TestNewThreadedMessage(t *testing.T) {
 
 	client := Client{log: &testLogger{}}
 	client.SetEventChannel(channel)
+	client.friendNames = make(map[string]string)
+	client.friendNames["123456789"] = "e"
 
 	client.handleDeltaLikeMessage(rawJson)
 
@@ -88,6 +91,7 @@ func TestNewThreadedMessage(t *testing.T) {
 			nm := obj.(Message)
 			assert.Len(t, nm.Thread.Participants, 3, "threaded message expected 3 participants, got %d", len(nm.Thread.Participants))
 			assert.True(t, nm.IsGroup(), "threaded message is group")
+			assert.True(t, strings.HasPrefix(nm.String(&client), "[2019-12-03 14:29:53] "))
 		}
 	}
 }
@@ -240,13 +244,13 @@ func TestMessageReply(t *testing.T) {
 
 			assert.Equal(t, "2", mr.RepliedToMessage.Thread.ThreadFbId)
 			assert.Equal(t, "mid.foo", mr.RepliedToMessage.MessageId)
-			assert.Equal(t, uint64(1), mr.RepliedToMessage.ActorFbId)
+			assert.Equal(t, "1", mr.RepliedToMessage.ActorFbId)
 			assert.Equal(t, uint64(15), mr.RepliedToMessage.Timestamp)
 			assert.Equal(t, "bodybody", mr.RepliedToMessage.Body)
 
 			assert.Equal(t, "2", mr.Message.Thread.ThreadFbId)
 			assert.Equal(t, "mid.bar", mr.Message.MessageId)
-			assert.Equal(t, uint64(52), mr.Message.ActorFbId)
+			assert.Equal(t, "52", mr.Message.ActorFbId)
 			assert.Equal(t, uint64(157), mr.Message.Timestamp)
 			assert.Equal(t, "Oda", mr.Message.Body)
 		}
