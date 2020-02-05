@@ -1,3 +1,6 @@
+clean:
+	rm messenger
+
 run:
 	go run *.go
 
