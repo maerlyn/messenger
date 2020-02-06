@@ -86,14 +86,13 @@ func (w *SendWidget) listenForEvents() {
 }
 
 func (w *SendWidget) sendMessage(g *gocui.Gui, v *gocui.View) error {
-	//text := v.ViewBuffer()
+	text := v.ViewBuffer()
 
-	//TODO
-	//w.fbc.SendMessage(w.selectedFriendId, text)
+	w.fbc.SendMessage(w.selectedFriendId, text)
 
 	v.Clear()
 	_ = v.SetOrigin(0, 0)
-	v.MoveCursor(-1000, 0, false)
+	v.MoveCursor(-len(text), 0, false)
 
 	return nil
 }

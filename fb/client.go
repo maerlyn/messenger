@@ -520,11 +520,44 @@ func (c *Client) MarkAsDelivered(msg Message) {
 
 	body := bytes.NewBufferString(formData.Encode())
 
-	resp, err := c.doHttpRequest("POST", "https://www.facebook.com/ajax/mercury/delivery_receipts.php", body, 10*time.Second)
+	_, err := c.doHttpRequest("POST", "https://www.facebook.com/ajax/mercury/delivery_receipts.php", body, 10*time.Second)
 	if err != nil {
 		c.log.Error(fmt.Sprintf("error doing request for MarkAsDelivered: %s\n", err))
 		return
 	}
+}
 
-	c.log.App(fmt.Sprintf("MarkAsRead response: %s", resp))
+func (c *Client) SendMessage(userOrGroupId, text string) {
+	messageAndOTId := strconv.Itoa(int(time.Now().UnixNano())) //TODO generate
+
+	formData := url.Values{}
+	formData.Add("client", "mercury")
+	formData.Add("action_type", "ma-type:user-generated-message")
+	formData.Add("ephemeral_tll_mode", "0")
+	formData.Add("has_attachment", "false")
+	formData.Add("message_id", messageAndOTId)
+	formData.Add("offline_threading_id", messageAndOTId)
+	formData.Add("source", "source:chat:web")
+	formData.Add("timestamp", strconv.Itoa(int(time.Now().Unix()*1000)))
+	formData.Add("__user", c.config.UserID)
+	formData.Add("__a", "1")
+	formData.Add("fb_dtsg", c.dtsg)
+	formData.Add("body", text)
+
+	if c.IsGroup(userOrGroupId) {
+		formData.Add("thread_id", userOrGroupId)
+	} else {
+		formData.Add("other_user_fbid", userOrGroupId)
+	}
+
+	body := bytes.NewBufferString(formData.Encode())
+	c.log.App(fmt.Sprintf("send request body: %s\n\n\n", body))
+
+	resp, err := c.doHttpRequest("POST", "https://www.facebook.com/messaging/send/", body, 10*time.Second)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error doing request for send: %s", err))
+		return
+	}
+
+	c.log.App(fmt.Sprintf("send response: %s\n\n", string(resp)))
 }
