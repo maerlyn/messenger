@@ -527,6 +527,30 @@ func (c *Client) MarkAsDelivered(msg Message) {
 	}
 }
 
+func (c *Client) MarkAsRead(msg Message) {
+	k := strconv.Itoa(int(time.Now().Unix() * 1000))
+	l := strconv.Itoa(int(rand.Uint32()))
+	threadingId := fmt.Sprintf("<%s:%s-%s@mail.projektitan.com>", k, l, c.clientId)
+
+	formData := url.Values{}
+	formData.Add("ids["+msg.Thread.UniqueId()+"]", "1")
+	formData.Add("watermarkTimestamp", strconv.Itoa(int(msg.TimestampPrecise)))
+	formData.Add("shouldSendReadReceipt", "1")
+	formData.Add("commence_last_message_type", "non_ad")
+	formData.Add("titanOriginatedThreadId", threadingId)
+	formData.Add("fb_dtsg", c.dtsg)
+
+	body := bytes.NewBufferString(formData.Encode())
+	c.log.App(fmt.Sprintf("mark as read request body: %s\n", body))
+
+	resp, err := c.doHttpRequest("POST", "https://www.facebook.com/ajax/mercury/change_read_status.php", body, 10*time.Second)
+	if err != nil {
+		c.log.Error(fmt.Sprintf("error doing request for MarkAsRead: %s\n", err))
+	}
+
+	c.log.App(fmt.Sprintf("MarkAsRead response: %s", resp))
+}
+
 func (c *Client) SendMessage(userOrGroupId, text string) {
 	messageAndOTId := strconv.Itoa(int(time.Now().UnixNano())) //TODO generate
 

@@ -18,6 +18,7 @@ type MessagesWidget struct {
 
 	selectedFriendId string
 	messages         map[string][]interface{}
+	lastMessages     map[string]fb.Message
 
 	incomingChannel <-chan interface{}
 	outgoingChannel chan<- interface{}
@@ -33,6 +34,7 @@ func NewMessagesWidget(client *fb.Client, g *gocui.Gui, incoming <-chan interfac
 		outgoingChannel:  outgoing,
 		selectedFriendId: fica[0],
 		messages:         make(map[string][]interface{}, 0),
+		lastMessages:     make(map[string]fb.Message, 0),
 		log:              log,
 	}
 	w.self = &w
@@ -58,6 +60,10 @@ func (w MessagesWidget) Layout(g *gocui.Gui) error {
 		v.Wrap = true
 
 		if err := g.SetKeybinding("messages", gocui.KeyEnter, gocui.ModNone, w.self.insertTerminator); err != nil {
+			return err
+		}
+
+		if err := g.SetKeybinding("messages", 'r', gocui.ModNone, w.self.markAsRead); err != nil {
 			return err
 		}
 	}
@@ -88,6 +94,18 @@ func (w *MessagesWidget) insertTerminator(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
+func (w *MessagesWidget) markAsRead(g *gocui.Gui, v *gocui.View) error {
+	msg, ok := w.lastMessages[w.selectedFriendId]
+	if !ok {
+		w.log.Error("cannot find message to markAsRead")
+		return nil
+	}
+
+	w.fbc.MarkAsRead(msg)
+
+	return nil
+}
+
 func (w *MessagesWidget) ensureConversation(userId string) {
 	if _, ok := w.messages[userId]; !ok {
 		w.messages[userId] = make([]interface{}, 0)
@@ -102,6 +120,7 @@ func (w *MessagesWidget) loadLastMessages(fica []string) {
 
 		for _, m := range messages {
 			w.messages[userId] = append(w.messages[userId], m)
+			w.lastMessages[userId] = m
 		}
 		w.messages[userId] = append(w.messages[userId], SEPARATOR)
 
@@ -158,6 +177,7 @@ func (w *MessagesWidget) listenForEvents() {
 		case fb.Message:
 			w.ensureConversation(obj.Thread.UniqueId())
 			w.messages[obj.Thread.UniqueId()] = append(w.messages[obj.Thread.UniqueId()], obj)
+			w.lastMessages[obj.Thread.UniqueId()] = obj
 			w.printIfCurrentconversation(obj.Thread.UniqueId(), obj.String(w.fbc))
 
 		case fb.ReadReceipt:
