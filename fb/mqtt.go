@@ -175,17 +175,20 @@ func (c *Client) handleDeltaLikeMessage(message []byte) {
 		}
 	}
 
-	if strings.Contains(string(message), "errorcode") {
+	if strings.Contains(string(message), "errorCode") {
 		ec := errorCode{}
 		err := json.Unmarshal(message, &ec)
 		if err != nil {
 			c.log.Error(fmt.Sprintf("error unmarshaling errorCode: %s", err))
 			return
 		}
+		c.log.Error(fmt.Sprintf("got errorCode %s", ec.ErrorCode))
 
 		if ec.ErrorCode == "ERROR_QUEUE_NOT_FOUND" || ec.ErrorCode == "ERROR_QUEUE_OVERFLOW" {
+			c.log.App("re-creating messenger queue")
 			c.syncToken = ""
 			c.createMessengerQueue(c.mqttClient)
+			return
 		}
 	}
 
