@@ -154,6 +154,7 @@ func (c *Client) fetchStartPage() error {
 	}
 
 	bs := string(body)
+	c.log.App(fmt.Sprintf("startpage body len: %d", len(bs)))
 
 	file, _ := os.Create("fb_response.html")
 	_, _ = fmt.Fprint(file, bs)
@@ -490,6 +491,7 @@ func (c *Client) GetLastMessages(userId string, limit int) []Message {
 	for _, v := range lmr.O0.Data.MessageThread.Messages.Nodes {
 		msg := Message{}
 		msg.fromLastMessage(v)
+		msg.Thread.fromFBType(lmr.O0.Data.MessageThread.ThreadKey)
 
 		ret = append(ret, msg)
 	}
