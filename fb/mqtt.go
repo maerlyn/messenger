@@ -99,7 +99,16 @@ func (c *Client) Listen() {
 }
 
 func (c *Client) createMessengerQueue(client mqtt.Client) {
-	c.fetchLastSeqId()
+	if err := c.fetchLastSeqId(); err != nil {
+		c.log.Error(fmt.Sprintf("error fetching last seq id: %s", err))
+
+		go func() {
+			time.Sleep(5 * time.Second)
+			c.createMessengerQueue(client)
+		}()
+
+		return
+	}
 
 	token := client.Publish("/messenger_sync_create_queue", byte(0), false, fmt.Sprintf(`{
 				"sync_api_version": 10,

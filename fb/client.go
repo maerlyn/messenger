@@ -324,7 +324,7 @@ func (c *Client) updateLastActiveTimes() {
 	}
 }
 
-func (c *Client) fetchLastSeqId() {
+func (c *Client) fetchLastSeqId() error {
 	formData := url.Values{}
 	formData.Add("fb_dtsg", c.dtsg)
 	formData.Add("queries", `{"o0":{"doc_id":"1349387578499440", "query_params":{"limit":1, "tags": ["INBOX"],"before": null, "includeDeliveryReceipts": false,"includeSeqID": true}}}`)
@@ -333,7 +333,7 @@ func (c *Client) fetchLastSeqId() {
 	resp, err := c.doHttpRequest("POST", "https://www.facebook.com/api/graphqlbatch/", body, time.Minute)
 	if err != nil {
 		c.log.Error(fmt.Sprintf("error fetching last seq id: %s\n", err))
-		return
+		return err
 	}
 
 	firstLine := strings.Split(string(resp), "\n")[0]
@@ -341,9 +341,12 @@ func (c *Client) fetchLastSeqId() {
 	err = json.Unmarshal([]byte(firstLine), &responseObj)
 	if err != nil {
 		c.log.Error(fmt.Sprintf("error unmarshaling last seq id response: %s\n", err))
+		return err
 	}
 
 	c.lastSeqId = responseObj.O0.Data.Viewer.MessageThreads.SyncSequenceId
+
+	return nil
 }
 
 func (c *Client) doHttpRequest(method, url string, body io.Reader, timeout time.Duration) ([]byte, error) {
