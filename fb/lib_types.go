@@ -309,5 +309,5 @@ func (t *Typing) fromFBType(orig typingNotification) {
 func (t *Typing) String(fbc *Client) string {
 	name := fbc.FriendName(t.SenderFbId)
 
-	return fmt.Sprintf("%s is typing, state: %d", name, t.State)
+	return fmt.Sprintf("[%s] %s is typing, state: %d", time.Now().Format(DateFormatYmdHis), name, t.State)
 }
