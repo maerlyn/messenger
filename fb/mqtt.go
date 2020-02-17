@@ -234,6 +234,13 @@ func (c *Client) handleDeltaLikeMessage(message []byte) {
 
 				c.emit(rr)
 			}
+
+			if delta.isMarkRead() {
+				mr := MarkRead{}
+				mr.fromFBType(delta)
+
+				c.emit(mr)
+			}
 		}
 	}
 }

@@ -147,10 +147,13 @@ type delta struct {
 
 	Participants []string `json:"participants"`
 
-	ActionTimestampMs    string    `json:"actionTimestampMs"`
-	ActorFbId            string    `json:"actorFbId"`
-	ThreadKey            threadKey `json:"threadKey"`
-	WatermarkTimestampMs string    `json:"watermarkTimestampMs"`
+	ActionTimestamp      string      `json:"actionTimestamp"`
+	ActionTimestampMs    string      `json:"actionTimestampMs"`
+	ActorFbId            string      `json:"actorFbId"`
+	ThreadKey            threadKey   `json:"threadKey"`
+	ThreadKeys           []threadKey `json:"threadKeys"`
+	WatermarkTimestamp   string      `json:"watermarkTimestamp"`
+	WatermarkTimestampMs string      `json:"watermarkTimestampMs"`
 
 	Attachments []deltaAttachment `json:"attachments"`
 }
@@ -165,6 +168,10 @@ func (d *delta) isNewMessage() bool {
 
 func (d *delta) isReadReceipt() bool {
 	return d.Class == "ReadReceipt"
+}
+
+func (d *delta) isMarkRead() bool {
+	return d.Class == "MarkRead"
 }
 
 func (d *delta) decodeClientPayload() []byte {

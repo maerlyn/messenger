@@ -311,3 +311,19 @@ func (t *Typing) String(fbc *Client) string {
 
 	return fmt.Sprintf("[%s] %s is typing, state: %d", time.Now().Format(DateFormatYmdHis), name, t.State)
 }
+
+type MarkRead struct {
+	ActionTimestamp    int64
+	Thread             thread
+	WatermarkTimestamp int64
+}
+
+func (mr *MarkRead) fromFBType(orig delta) {
+	at, _ := strconv.Atoi(orig.ActionTimestamp)
+	mr.ActionTimestamp = int64(at / 1000)
+
+	wt, _ := strconv.Atoi(orig.WatermarkTimestamp)
+	mr.WatermarkTimestamp = int64(wt / 1000)
+
+	mr.Thread.fromFBType(orig.ThreadKeys[0])
+}

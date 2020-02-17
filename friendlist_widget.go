@@ -183,6 +183,9 @@ func (w *FriendListWidget) listenForEvents() {
 
 		case fb.Typing:
 			w.markUserUnread(obj.SenderFbId)
+
+		case fb.MarkRead:
+			w.hasUnread[obj.Thread.UniqueId()] = false
 		}
 	}
 }
