@@ -45,6 +45,7 @@ type Client struct {
 	lastSeqId  string
 
 	groups []messengerGroup
+	groupsMutex sync.Mutex
 
 	lastActiveTimes                lastActiveTimes
 	lastActiveTimesMutex           sync.Mutex
@@ -91,6 +92,7 @@ func NewClient(log Logger, conf Config) *Client {
 	c.fbStartPageMutex = sync.Mutex{}
 	c.lastActiveTimes = make(map[string]int64)
 	c.lastActiveTimesMutex = sync.Mutex{}
+	c.groupsMutex = sync.Mutex{}
 
 	err := c.fetchStartPage()
 	if err != nil {
@@ -215,6 +217,8 @@ func (c *Client) updateGroups() {
 		groupsPart = strings.Replace(groupsPart, fmt.Sprintf("%s:", s), fmt.Sprintf("\"%s\":", s), -1)
 	}
 
+	c.groupsMutex.Lock()
+	defer c.groupsMutex.Unlock()
 	err := json.Unmarshal([]byte(groupsPart), &c.groups)
 	if err != nil {
 		c.log.Error(fmt.Sprintf("error unmarshaling groups: %s\n\nraw: %s\n\n", err, groupsPart))
@@ -390,6 +394,8 @@ func (c *Client) FriendNames() map[string]string {
 }
 
 func (c *Client) IsGroup(id string) bool {
+	c.groupsMutex.Lock()
+	defer c.groupsMutex.Unlock()
 	for _, g := range c.groups {
 		if g.Uid == id {
 			return true
@@ -400,6 +406,8 @@ func (c *Client) IsGroup(id string) bool {
 }
 
 func (c *Client) GroupName(id string) string {
+	c.groupsMutex.Lock()
+	defer c.groupsMutex.Unlock()
 	for _, g := range c.groups {
 		if g.Uid == id {
 			if g.MercuryThread.Name != "" {
