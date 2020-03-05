@@ -195,13 +195,26 @@ func (c *Client) updateDtsg() {
 func (c *Client) updateGroups() {
 	bs := string(c.getStartPage())
 
-	groupsIndex := strings.Index(bs, "groups:[{")
+	prefixToSearch := ""
+	suffixToSearch := ""
+
+	if strings.Contains(bs, "groups:[{") {
+		prefixToSearch = "groups:[{"
+		suffixToSearch = "}],list"
+	} else if strings.Contains(bs,"groups\":[{") {
+		prefixToSearch = "groups\":[{"
+		suffixToSearch = "}],\"list"
+	} else {
+		return
+	}
+
+	groupsIndex := strings.Index(bs, prefixToSearch)
 	if groupsIndex == -1 {
 		return
 	}
 
-	groupsEnd := strings.Index(bs[groupsIndex:], "}],list")
-	groupsPart := bs[groupsIndex+len("groups:") : groupsIndex+groupsEnd+2]
+	groupsEnd := strings.Index(bs[groupsIndex:], suffixToSearch)
+	groupsPart := bs[groupsIndex+len(prefixToSearch)-2 : groupsIndex+groupsEnd+2]
 
 	for _, s := range []string{
 		"uid",
@@ -244,14 +257,28 @@ func (c *Client) updateFriendsList() {
 		return
 	}
 
-	shotProfilesIndex := strings.Index(bs, "shortProfiles:\"")
-	nearbyIndex := strings.Index(bs, "nearby\":")
+	prefixToSearch := ""
+	suffixToSearch := ""
 
-	if shotProfilesIndex == -1 {
+	if strings.Contains(bs, "shortProfiles:") {
+		prefixToSearch = "shortProfiles:"
+		suffixToSearch = "nearby:"
+	} else if strings.Contains(bs, "shortProfiles\":") {
+		prefixToSearch = "shortProfiles\":"
+		suffixToSearch = "nearby\":"
+	} else {
+		//wait what?
 		return
 	}
 
-	shortProfilesPart := bs[shotProfilesIndex+14 : nearbyIndex-1]
+	shortProfilesIndex := strings.Index(bs, prefixToSearch)
+	nearbyIndex := strings.Index(bs, suffixToSearch)
+
+	if shortProfilesIndex == -1 {
+		return
+	}
+
+	shortProfilesPart := bs[shortProfilesIndex+len(prefixToSearch) : nearbyIndex-1]
 
 	for _, s := range []string{
 		"id",
@@ -300,13 +327,32 @@ func (c *Client) updateLastActiveTimes() {
 		return
 	}
 
-	lastActiveTimesIndex := strings.Index(bs, "lastActiveTimes")
+	prefixToSearch := ""
+
+	if strings.Contains(bs, "lastActiveTimes:") {
+		prefixToSearch = "lastActiveTimes:"
+	} else if strings.Contains(bs, "lastActiveTimes\":") {
+		prefixToSearch = "lastActivetimes\":"
+	} else {
+		//wait what?
+
+		//still need to do this, so we don't crash
+		for _, v := range c.lastActiveTimesUpdatedChannels {
+			v <- true
+		}
+		return
+	}
+
+	lastActiveTimesIndex := strings.Index(bs, prefixToSearch)
 	if lastActiveTimesIndex == -1 {
+		for _, v := range c.lastActiveTimesUpdatedChannels {
+			v <- true
+		}
 		return
 	}
 
 	nextCloseBracket := strings.Index(bs[lastActiveTimesIndex:], "}")
-	lastActiveTimesPart := bs[lastActiveTimesIndex+len("lastActiveTimes:") : lastActiveTimesIndex+nextCloseBracket+1]
+	lastActiveTimesPart := bs[lastActiveTimesIndex+len(prefixToSearch) : lastActiveTimesIndex+nextCloseBracket+1]
 
 	lat := lastActiveTimes{}
 	err := json.Unmarshal([]byte(lastActiveTimesPart), &lat)
