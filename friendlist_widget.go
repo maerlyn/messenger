@@ -153,10 +153,16 @@ func (w *FriendListWidget) updateFriendsList() {
 			}
 			_, _ = fmt.Fprintln(v, "")
 
-			if lat > 0 {
-				_, _ = fmt.Fprintf(v, "     %s\n", time.Unix(lat, 0).Format("2006-01-02 15:04:05"))
-			} else {
-				_, _ = fmt.Fprintln(v, "")
+			if !w.fbc.IsGroup(id) {
+				if lat > 0 {
+					_, _ = fmt.Fprintf(v, "     %s\n", time.Unix(lat, 0).Format("2006-01-02 15:04:05"))
+				} else {
+					_, _ = fmt.Fprintln(v, "")
+				}
+			}
+
+			if !w.fbc.IsGroup(id) {
+				_, _ = fmt.Fprintf(v, "     C: %s\n", w.lastC[id])
 			}
 
 			_, _ = fmt.Fprintln(v, "")

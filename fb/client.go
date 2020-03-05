@@ -244,8 +244,8 @@ func (c *Client) updateFriendsList() {
 		return
 	}
 
-	shotProfilesIndex := strings.Index(bs, "shortProfiles")
-	nearbyIndex := strings.Index(bs, "nearby:")
+	shotProfilesIndex := strings.Index(bs, "shortProfiles:\"")
+	nearbyIndex := strings.Index(bs, "nearby\":")
 
 	if shotProfilesIndex == -1 {
 		return
@@ -461,7 +461,11 @@ func (c *Client) LoadFriend(id string) bool {
 	c.friendNamesMutex.Lock()
 	defer c.friendNamesMutex.Unlock()
 
-	c.friendNames[id] = friendData.O0.Data.MessagingActors[0].Name
+	if len(friendData.O0.Data.MessagingActors) > 0 {
+		c.friendNames[id] = friendData.O0.Data.MessagingActors[0].Name
+	} else {
+		c.friendNames[id] = id
+	}
 
 	return true
 }
