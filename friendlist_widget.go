@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/jroimartin/gocui"
@@ -20,6 +21,7 @@ type FriendListWidget struct {
 
 	friendsICareAbout []string
 	hasUnread         map[string]bool
+	lastC map[string]string
 
 	incomingChannel <-chan interface{}
 	outgoingChannel chan<- interface{}
@@ -36,6 +38,7 @@ func NewFriendListWidget(client *fb.Client, g *gocui.Gui, fica []string, incomin
 		incomingChannel:   incoming,
 		outgoingChannel:   outgoing,
 		friendsToLoad:     make(chan string, 20),
+		lastC: make(map[string]string),
 	}
 
 	w.self = &w
@@ -186,6 +189,15 @@ func (w *FriendListWidget) listenForEvents() {
 
 		case fb.MarkRead:
 			w.hasUnread[obj.Thread.UniqueId()] = false
+			w.updateFriendsList()
+
+		case fb.Presence:
+			for _, v := range obj.List {
+				if v.C != 0 {
+					w.lastC[v.UserID] = strconv.FormatInt(v.C, 10)
+				}
+			}
+			w.updateFriendsList()
 		}
 	}
 }

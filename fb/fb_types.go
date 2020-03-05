@@ -47,7 +47,7 @@ type orcaPresence struct {
 	List     []struct {
 		UserID  int64  `json:"u"`
 		Present uint8  `json:"p"`
-		C       uint64 `json:"c"`
+		C       int64  `json:"c"`
 	} `json:"list"`
 }
 

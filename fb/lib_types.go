@@ -13,6 +13,7 @@ const (
 type presenceItem struct {
 	UserID  string
 	Present uint8
+	C int64
 }
 type Presence struct {
 	ListType string

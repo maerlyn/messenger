@@ -157,7 +157,7 @@ func (c *Client) handleOrcaPresence(message []byte) {
 
 	for _, v := range obj.List {
 		uid := strconv.Itoa(int(v.UserID))
-		p.List = append(p.List, presenceItem{UserID: uid, Present: v.Present})
+		p.List = append(p.List, presenceItem{UserID: uid, Present: v.Present, C:v.C})
 	}
 
 	c.emit(p)
