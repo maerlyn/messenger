@@ -44,7 +44,7 @@ type Client struct {
 	dtsg       string
 	lastSeqId  string
 
-	groups []messengerGroup
+	groups      messengerGroups
 	groupsMutex sync.Mutex
 
 	lastActiveTimes                lastActiveTimes
@@ -195,43 +195,17 @@ func (c *Client) updateDtsg() {
 func (c *Client) updateGroups() {
 	bs := string(c.getStartPage())
 
-	prefixToSearch := ""
-	suffixToSearch := ""
+	pos := strings.Index(bs, "should_hide_group_conversations_list")
+	pos2 := strings.Index(bs[pos:], "message_threads")
 
-	if strings.Contains(bs, "groups:[{") {
-		prefixToSearch = "groups:[{"
-		suffixToSearch = "}],list"
-	} else if strings.Contains(bs,"groups\":[{") {
-		prefixToSearch = "groups\":[{"
-		suffixToSearch = "}],\"list"
-	} else {
-		return
-	}
+	bracePos := pos + pos2 + len("message_threads\":")
+	closeBracePos := findMatchingClosingBraceIndex(bs, bracePos+1, "{", "}")
 
-	groupsIndex := strings.Index(bs, prefixToSearch)
-	if groupsIndex == -1 {
-		return
-	}
-
-	groupsEnd := strings.Index(bs[groupsIndex:], suffixToSearch)
-	groupsPart := bs[groupsIndex+len(prefixToSearch)-2 : groupsIndex+groupsEnd+2]
-
-	for _, s := range []string{
-		"uid",
-		"mercury_thread",
-		"participants",
-		"image_src",
-		"short_name",
-		"name",
-		"participants_to_render",
-		"id",
-		"text",
-	} {
-		groupsPart = strings.Replace(groupsPart, fmt.Sprintf("%s:", s), fmt.Sprintf("\"%s\":", s), -1)
-	}
+	groupsPart := bs[bracePos:closeBracePos]
 
 	c.groupsMutex.Lock()
 	defer c.groupsMutex.Unlock()
+
 	err := json.Unmarshal([]byte(groupsPart), &c.groups)
 	if err != nil {
 		c.log.Error(fmt.Sprintf("error unmarshaling groups: %s\n\nraw: %s\n\n", err, groupsPart))
@@ -239,10 +213,13 @@ func (c *Client) updateGroups() {
 	}
 
 	go func() {
-		for _, group := range c.groups {
-			for _, userId := range group.MercuryThread.Participants {
-				if _, ok := c.friendNames[userId]; !ok {
-					c.LoadFriend(userId)
+		c.friendNamesMutex.Lock()
+		defer c.friendNamesMutex.Unlock()
+
+		for _, group := range c.groups.Edges {
+			for _, user := range group.Node.AllParticipants.Edges {
+				if _, ok := c.friendNames[user.Node.Id]; !ok {
+					c.friendNames[user.Node.Id] = user.Node.MessagingActor.Name
 				}
 			}
 		}
@@ -332,7 +309,7 @@ func (c *Client) updateLastActiveTimes() {
 	if strings.Contains(bs, "lastActiveTimes:") {
 		prefixToSearch = "lastActiveTimes:"
 	} else if strings.Contains(bs, "lastActiveTimes\":") {
-		prefixToSearch = "lastActivetimes\":"
+		prefixToSearch = "lastActiveTimes\":"
 	} else {
 		//wait what?
 
@@ -442,8 +419,9 @@ func (c *Client) FriendNames() map[string]string {
 func (c *Client) IsGroup(id string) bool {
 	c.groupsMutex.Lock()
 	defer c.groupsMutex.Unlock()
-	for _, g := range c.groups {
-		if g.Uid == id {
+
+	for _, g := range c.groups.Edges {
+		if g.Node.ThreadKey.ThreadFbId == id {
 			return true
 		}
 	}
@@ -454,23 +432,14 @@ func (c *Client) IsGroup(id string) bool {
 func (c *Client) GroupName(id string) string {
 	c.groupsMutex.Lock()
 	defer c.groupsMutex.Unlock()
-	for _, g := range c.groups {
-		if g.Uid == id {
-			if g.MercuryThread.Name != "" {
-				return g.MercuryThread.Name
-			} else {
-				ret := make([]string, 0, len(g.ParticipantsToRender))
 
-				for _, p := range g.ParticipantsToRender {
-					ret = append(ret, p.ShortName)
-				}
-
-				return strings.Join(ret, ", ")
-			}
+	for _, g := range c.groups.Edges {
+		if g.Node.ThreadKey.ThreadFbId == id {
+			return g.Node.Name
 		}
 	}
 
-	return ""
+	return id
 }
 
 func (c *Client) LastActive(userId string) int64 {
@@ -647,4 +616,21 @@ func (c *Client) SendMessage(userOrGroupId, text string) {
 	}
 
 	c.log.App(fmt.Sprintf("send response: %s\n\n", string(resp)))
+}
+
+func findMatchingClosingBraceIndex(input string, startOffset int, openTag, closeTag string) int {
+	stack := 1
+	i := startOffset
+
+	for ; stack != 0; i++ {
+		if input[i:i+1] == openTag {
+			stack++
+		}
+
+		if input[i:i+1] == closeTag {
+			stack--
+		}
+	}
+
+	return i
 }

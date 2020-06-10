@@ -21,7 +21,7 @@ type FriendListWidget struct {
 
 	friendsICareAbout []string
 	hasUnread         map[string]bool
-	lastC map[string]string
+	lastC             map[string]string
 
 	incomingChannel <-chan interface{}
 	outgoingChannel chan<- interface{}
@@ -38,7 +38,7 @@ func NewFriendListWidget(client *fb.Client, g *gocui.Gui, fica []string, incomin
 		incomingChannel:   incoming,
 		outgoingChannel:   outgoing,
 		friendsToLoad:     make(chan string, 20),
-		lastC: make(map[string]string),
+		lastC:             make(map[string]string),
 	}
 
 	w.self = &w

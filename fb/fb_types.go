@@ -15,19 +15,32 @@ type friendList map[string]friendlistItem
 
 type lastActiveTimes map[string]int64
 
-type messengerGroup struct {
-	Uid           string `json:"uid"`
-	MercuryThread struct {
-		Participants []string `json:"participants"`
-		ImageSrc     string   `json:"image_src"`
-		Name         string   `json:"name"`
-	} `json:"mercury_thread"`
-	ParticipantsToRender []struct {
-		Id        uint64 `json:"id"`
-		ImageSrc  string `json:"image_src"`
-		Name      string `json:"name"`
-		ShortName string `json:"short_name"`
-	} `json:"participants_to_render"`
+type messengerGroups struct {
+	Edges []struct {
+		Node struct {
+			ThreadKey struct {
+				ThreadFbId string `json:"thread_fbid"`
+			} `json:"thread_key"`
+			UpdatedTime     int64  `json:"updated_time"`
+			Name            string `json:"name"`
+			AllParticipants struct {
+				Edges []struct {
+					Node struct {
+						MessagingActor struct {
+							TypeName       string `json:"__typename"`
+							Id             string `json:"id"`
+							Name           string `json:"name"`
+							ShortName      string `json:"short_name"`
+							ProfilePicture struct {
+								Uri string `json:"uri"`
+							} `json:"profile_picture"`
+						} `json:"messaging_actor"`
+						Id string `json:"id"`
+					} `json:"node"`
+				} `json:"edges"`
+			} `json:"all_participants"`
+		} `json:"node"`
+	} `json:"edges"`
 }
 
 type lastSeqIdResponse struct {
@@ -45,9 +58,10 @@ type lastSeqIdResponse struct {
 type orcaPresence struct {
 	ListType string `json:"list_type"`
 	List     []struct {
-		UserID  int64  `json:"u"`
-		Present uint8  `json:"p"`
-		C       int64  `json:"c"`
+		UserID  int64 `json:"u"`
+		Present uint8 `json:"p"`
+		C       int64 `json:"c"`
+		L       int64 `json:"l"`
 	} `json:"list"`
 }
 

@@ -69,6 +69,7 @@ func (c *Client) Listen() {
 		if c.syncToken == "" {
 			c.createMessengerQueue(client)
 		} else {
+			c.log.App("getting messenger diffs after reconnect")
 			token := client.Publish("/messenger_sync_get_diffs", byte(0), false, fmt.Sprintf(`{
 				"sync_api_version": 10,
 				"max_deltas_able_to_process": 1000,
@@ -110,6 +111,7 @@ func (c *Client) createMessengerQueue(client mqtt.Client) {
 		return
 	}
 
+	c.log.App("creating messenger queue")
 	token := client.Publish("/messenger_sync_create_queue", byte(0), false, fmt.Sprintf(`{
 				"sync_api_version": 10,
 				"max_deltas_able_to_process": 1000,
@@ -155,9 +157,15 @@ func (c *Client) handleOrcaPresence(message []byte) {
 
 	p := Presence{ListType: obj.ListType}
 
+	c.lastActiveTimesMutex.Lock()
+	c.lastActiveTimesMutex.Unlock()
 	for _, v := range obj.List {
 		uid := strconv.Itoa(int(v.UserID))
-		p.List = append(p.List, presenceItem{UserID: uid, Present: v.Present, C:v.C})
+		p.List = append(p.List, presenceItem{UserID: uid, Present: v.Present, C: v.C})
+
+		if c.lastActiveTimes[uid] < v.L {
+			c.lastActiveTimes[uid] = v.L
+		}
 	}
 
 	c.emit(p)
